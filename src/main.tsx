@@ -1,12 +1,16 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.tsx'
-import { ChakraProvider, defaultSystem } from '@chakra-ui/react'
+import { Provider } from '@chakra-ui/react'
+import { BrowserRouter } from 'react-router-dom'
+import { system } from './theme'
+import App from './App'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ChakraProvider value={defaultSystem}>
-      <App />
-    </ChakraProvider>
-  </React.StrictMode>,
+    <BrowserRouter>
+      <Provider value={system}>
+        <App />
+      </Provider>
+    </BrowserRouter>
+  </React.StrictMode>
 )
