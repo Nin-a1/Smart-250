@@ -1,6 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import { Box } from '@chakra-ui/react'
-import { toaster } from './lib/toaster'
+import { Toaster } from './components/ui/toaster'
 import Navbar from './components/Navbar'
 import Landing from './pages/Landing'
 import ReportIssue from './pages/ReportIssue'
@@ -23,7 +23,7 @@ export default function App() {
         <Route path="/agent/dashboard"   element={<AgentDashboard />} />
         <Route path="/agent/resolve/:id" element={<AgentResolve />} />
       </Routes>
-      <toaster.Toaster />
+      <Toaster />
     </Box>
   )
 }

@@ -74,7 +74,7 @@ Return ONLY valid JSON, no markdown, no explanation:
   // Step B — research the responsible institution with Google Search grounding
   const searchModel = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
-    tools: [{ googleSearch: {} }],
+    tools: [{ googleSearch: {} } as never],
   })
 
   const searchResult = await searchModel.generateContent(
