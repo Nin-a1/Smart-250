@@ -17,7 +17,7 @@ function stripPrefix(b64: string): string {
   return b64.replace(/^data:image\/\w+;base64,/, '')
 }
 
-function imagePart(b64: string) {
+function img(b64: string) {
   return {
     inlineData: {
       data: stripPrefix(b64),
@@ -26,7 +26,7 @@ function imagePart(b64: string) {
   }
 }
 
-// ── Call 1: Analyze photo → identify issue → research institution ─────────────
+// ── Call 1a: Analyze photo with vision ───────────────────────────────────────
 
 export interface AnalysisResult {
   issueType: string
@@ -43,15 +43,15 @@ export async function analyzeIssue(
   location: string
 ): Promise<AnalysisResult> {
 
-  // Step A — analyze the image (no tools, just vision)
   const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
 
-  const visionResult = await visionModel.generateContent([
-    imagePart(photoBase64),
-    `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda.
-Analyze this photo. Location reported: ${location}
+  const visionRes = await visionModel.generateContent([
+    img(photoBase64),
+    `You are the AI engine for Smart Kigali Alert, a civic issue reporting
+system in Kigali, Rwanda. Analyze this photo.
+Location reported: ${location}
 
-Return ONLY valid JSON, no markdown, no explanation:
+Return ONLY valid JSON with no markdown, no explanation:
 {
   "issueType": "pothole | streetlight | waste | flooding | sidewalk | infrastructure | other",
   "title": "Short specific title for this exact issue",
@@ -62,49 +62,51 @@ Return ONLY valid JSON, no markdown, no explanation:
   ])
 
   const visionData = parseJSON<Omit<AnalysisResult, 'institution' | 'institutionEmail'>>(
-    visionResult.response.text()
+    visionRes.response.text()
   ) ?? {
     issueType: 'other',
     title: 'Urban issue reported in Kigali',
-    description: 'A civic issue requires attention at the reported location.',
+    description: 'A civic issue has been reported and requires attention.',
     severity: 'medium' as Severity,
     isRealIssue: true,
   }
 
-  // Step B — research the responsible institution with Google Search grounding
+  // ── Call 1b: Research institution with Google Search grounding ──────────────
+
   const searchModel = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
-    tools: [{ googleSearch: {} } as never],
+    tools: [{ googleSearch: {} } as any],
   })
 
-  const searchResult = await searchModel.generateContent(
-    `Find the official Rwandan government institution or City of Kigali department responsible for handling "${visionData.issueType}" issues in Kigali, Rwanda.
+  const searchRes = await searchModel.generateContent(
+    `Find the official Rwandan government institution or City of Kigali department
+responsible for handling "${visionData.issueType}" problems in Kigali, Rwanda.
 Find their real contact email address.
 
-Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON with no markdown:
 {
   "institution": "Full official name of the responsible institution",
   "institutionEmail": "real@email.rw"
 }`
   )
 
-  const institutionData = parseJSON<{ institution: string; institutionEmail: string }>(
-    searchResult.response.text()
+  const instData = parseJSON<{ institution: string; institutionEmail: string }>(
+    searchRes.response.text()
   ) ?? {
     institution: 'City of Kigali',
     institutionEmail: 'info@kigalicity.gov.rw',
   }
 
-  return { ...visionData, ...institutionData }
+  return { ...visionData, ...instData }
 }
 
-// ── Call 2: Generate professional email body ──────────────────────────────────
+// ── Call 2: Generate formal email body ───────────────────────────────────────
 
 export async function generateEmailBody(issue: Issue): Promise<string> {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
-
-  const result = await model.generateContent(
-    `Write a formal civic report email body to ${issue.institution} on behalf of Smart Kigali Alert.
+  const res = await model.generateContent(
+    `Write a formal civic report email body to ${issue.institution}
+on behalf of Smart Kigali Alert.
 
 Issue ID:      ${issue.id}
 Type:          ${issue.issueType}
@@ -113,12 +115,12 @@ Location:      ${issue.location}
 Severity:      ${issue.severity}
 Description:   ${issue.description}
 Reported by:   ${issue.reporterName} (${issue.reporterPhone})
-Date reported: ${new Date(issue.createdAt).toLocaleDateString('en-RW')}
+Date:          ${new Date(issue.createdAt).toLocaleDateString('en-RW')}
 
-Write only the email body. Be professional and concise. Close by requesting acknowledgement of receipt and confirmation of action taken, referencing the Issue ID.`
+Write only the email body. Be professional and concise. End by asking
+them to acknowledge receipt and confirm action taken, referencing the Issue ID.`
   )
-
-  return result.response.text()
+  return res.response.text()
 }
 
 // ── Call 3: Verify resolution — compare before and after photos ───────────────
@@ -135,28 +137,24 @@ export async function verifyResolution(
   issueTitle: string
 ): Promise<ResolutionVerdict> {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
-
-  const result = await model.generateContent([
-    `You are verifying whether a civic issue in Kigali, Rwanda has been resolved.
+  const res = await model.generateContent([
+    `You are verifying whether a civic issue in Kigali has been resolved.
 Issue: "${issueTitle}"
-
 The FIRST image is BEFORE — the reported problem.
 The SECOND image is AFTER — the claimed resolution.
+Study both photos carefully.
 
-Study both photos carefully. Determine whether the issue has been genuinely resolved.
-
-Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON with no markdown:
 {
   "resolved": true | false,
   "confidence": 0-100,
   "reasoning": "One clear sentence explaining your verdict"
 }`,
-    imagePart(beforeB64),
-    imagePart(afterB64),
+    img(beforeB64),
+    img(afterB64),
   ])
-
   return (
-    parseJSON<ResolutionVerdict>(result.response.text()) ?? {
+    parseJSON<ResolutionVerdict>(res.response.text()) ?? {
       resolved: false,
       confidence: 0,
       reasoning: 'Verification inconclusive — please try again.',
@@ -171,28 +169,26 @@ export async function generateFridayReminder(
   issues: Issue[]
 ): Promise<string> {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
-
   const list = issues
-    .map(
-      i =>
-        `- ${i.id}: "${i.title}" at ${i.location} (open since ${new Date(
-          i.createdAt
-        ).toLocaleDateString('en-RW')})`
+    .map(i =>
+      `- ${i.id}: "${i.title}" at ${i.location} ` +
+      `(open since ${new Date(i.createdAt).toLocaleDateString('en-RW')})`
     )
     .join('\n')
 
-  const result = await model.generateContent(
-    `Write a Friday accountability reminder email from Smart Kigali Alert to ${institution}.
+  const res = await model.generateContent(
+    `Write a Friday accountability reminder email from Smart Kigali Alert
+to ${institution}.
 
 They have ${issues.length} unresolved issue(s) in Kigali:
 ${list}
 
-Tone: polite but firm. Mention this is the weekly Friday follow-up. List each issue clearly.
-Ask for a status update or resolution proof by end of day.
-Note that citizens are monitoring these issues in real time on the Smart Kigali Alert dashboard.
+Tone: polite but firm. Mention this is the weekly Friday follow-up.
+List each issue clearly. Ask for a status update or resolution proof by
+end of day. Note that citizens are monitoring these issues in real time
+on the Smart Kigali Alert dashboard.
 
 Write the email body only.`
   )
-
-  return result.response.text()
+  return res.response.text()
 }

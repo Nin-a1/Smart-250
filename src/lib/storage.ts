@@ -25,3 +25,6 @@ export const getIssueById = (id: string): Issue | null =>
 
 export const getOpenIssues = (): Issue[] =>
   getIssues().filter(i => i.status !== 'resolved')
+
+export const generateId = (): string =>
+  `SKA-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`
