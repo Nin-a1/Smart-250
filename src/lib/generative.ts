@@ -29,6 +29,7 @@ async function groqChat(
   model: string,
   messages: object[],
   maxTokens = 1024,
+  _attempt = 0,
 ): Promise<string> {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY
   if (!apiKey) throw new Error('VITE_GROQ_API_KEY is not set')
@@ -48,12 +49,25 @@ async function groqChat(
     })
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
-      throw new Error(`Groq ${res.status}: ${err?.error?.message ?? res.statusText}`)
+      // Auto-retry on rate limit (429) or server error (5xx), up to 2 extra attempts
+      if ((res.status === 429 || res.status >= 500) && _attempt < 2) {
+        clearTimeout(timer)
+        await new Promise(r => setTimeout(r, (_attempt + 1) * 2000))
+        return groqChat(model, messages, maxTokens, _attempt + 1)
+      }
+      const body = await res.text().catch(() => res.statusText)
+      let detail = res.statusText
+      try {
+        const parsed = JSON.parse(body) as { error?: { message?: string } }
+        detail = parsed?.error?.message ?? detail
+      } catch { /* use statusText */ }
+      throw new Error(`Groq ${res.status}: ${detail}`)
     }
 
-    const data = await res.json() as { choices: { message: { content: string } }[] }
-    return data.choices[0].message.content
+    const data = await res.json() as { choices?: { message: { content: string } }[] }
+    const content = data.choices?.[0]?.message?.content
+    if (!content) throw new Error('Groq returned an empty response — please try again.')
+    return content
   } finally {
     clearTimeout(timer)
   }
@@ -78,19 +92,17 @@ export async function analyzeIssue(
 ): Promise<AnalysisResult> {
   const base64 = photoBase64.replace(/^data:image\/\w+;base64,/, '')
 
-  const text = await groqChat(
-    VISION_MODEL,
-    [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image_url',
-            image_url: { url: `data:image/jpeg;base64,${base64}` },
-          },
-          {
-            type: 'text',
-            text: `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda. Analyze this photo.
+  const messages = [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'image_url',
+          image_url: { url: `data:image/jpeg;base64,${base64}` },
+        },
+        {
+          type: 'text',
+          text: `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda. Analyze this photo.
 Location reported: ${location}
 
 Return ONLY valid JSON (no markdown, no explanation):
@@ -101,12 +113,17 @@ Return ONLY valid JSON (no markdown, no explanation):
   "severity": "low | medium | high",
   "isRealIssue": true
 }`,
-          },
-        ],
-      },
-    ],
-    512,
-  )
+        },
+      ],
+    },
+  ]
+
+  let text = ''
+  try {
+    text = await groqChat(VISION_MODEL, messages, 512)
+  } catch (err) {
+    console.warn('[analyzeIssue] vision AI unavailable, using defaults:', err)
+  }
 
   const visionData = parseJSON<Omit<AnalysisResult, 'institution' | 'institutionEmail'>>(text) ?? {
     issueType: 'other',

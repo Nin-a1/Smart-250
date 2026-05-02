@@ -140,11 +140,18 @@ export default function ReportIssue() {
       navigate(`/confirmation/${issue.id}`)
 
     } catch (err) {
-      console.error(err)
+      console.error('[ReportIssue]', err)
+      const msg =
+        err instanceof Error
+          ? err.name === 'AbortError'
+            ? 'AI request timed out — check your connection and try again.'
+            : err.message
+          : 'Unknown error — please try again.'
       toaster.create({
-        title: 'Something went wrong',
-        description: 'Please try again.',
+        title: 'Submission failed',
+        description: msg,
         type: 'error',
+        duration: 8000,
       })
     } finally {
       setLoading(false)
