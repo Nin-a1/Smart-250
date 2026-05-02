@@ -5,6 +5,19 @@ import {
 } from '@chakra-ui/react'
 import { useNavigate } from 'react-router-dom'
 import { toaster } from '../lib/toaster'
+import { analyzeIssue, generateEmailBody } from '../lib/gemini'
+import { sendEmail } from '../lib/email'
+import { saveIssue, generateId } from '../lib/storage'
+import { Issue } from '../types'
+
+const STEPS = [
+  '',
+  'Uploading photo…',
+  'AI analyzing the image…',
+  'Searching for responsible institution…',
+  'Sending alert email…',
+  'Saving report…',
+]
 
 export default function ReportIssue() {
   const navigate = useNavigate()
@@ -16,6 +29,7 @@ export default function ReportIssue() {
   const [photo, setPhoto] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  const [step, setStep] = useState(0)
 
   const set = (k: string) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -55,14 +69,69 @@ export default function ReportIssue() {
   const handleSubmit = async () => {
     if (!validate()) return
     setLoading(true)
-    await new Promise(r => setTimeout(r, 600))
-    setLoading(false)
-    toaster.create({ title: 'Issue submitted!', type: 'success' })
-    navigate('/dashboard')
+
+    try {
+      setStep(1)
+      setStep(2)
+      const analysis = await analyzeIssue(photo!, form.location)
+
+      const issue: Issue = {
+        id: generateId(),
+        reporterName: form.name,
+        reporterPhone: form.phone,
+        reporterEmail: form.email,
+        location: form.location,
+        photoBase64: photo!,
+        ...analysis,
+        status: 'open',
+        emailSent: false,
+        createdAt: new Date().toISOString(),
+      }
+
+      setStep(3)
+      // institution already found by analyzeIssue via Google Search
+
+      setStep(4)
+      try {
+        const body = await generateEmailBody(issue)
+        await sendEmail({
+          toEmail:      issue.institutionEmail,
+          toName:       issue.institution,
+          issueId:      issue.id,
+          issueTitle:   issue.title,
+          location:     issue.location,
+          severity:     issue.severity,
+          reporterName: issue.reporterName,
+          reporterPhone: issue.reporterPhone,
+          body,
+        })
+        issue.emailSent = true
+      } catch {
+        toaster.create({
+          title: 'Email could not send',
+          description: 'Issue saved anyway.',
+          type: 'warning',
+        })
+      }
+
+      setStep(5)
+      saveIssue(issue)
+      navigate(`/confirmation/${issue.id}`)
+
+    } catch (err) {
+      console.error(err)
+      toaster.create({
+        title: 'Something went wrong',
+        description: 'Please try again.',
+        type: 'error',
+      })
+    } finally {
+      setLoading(false)
+      setStep(0)
+    }
   }
 
-  const border = (field: string) =>
-    errors[field] ? 'red.400' : 'gray.200'
+  const border = (field: string) => errors[field] ? 'red.400' : 'gray.200'
 
   return (
     <Box maxW="620px" mx="auto" py={10} px={6}>
@@ -76,15 +145,14 @@ export default function ReportIssue() {
             </Heading>
           </HStack>
           <Text color="gray.500" fontSize="sm">
-            AI will identify the problem and alert the right institution within seconds.
+            AI identifies the problem and alerts the right institution automatically.
           </Text>
         </VStack>
 
-        {/* Photo upload */}
+        {/* Photo */}
         <Box>
           <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
-            Photo of the issue{' '}
-            <Text as="span" color="red.400">*</Text>
+            Photo of the issue <Text as="span" color="red.400">*</Text>
           </Text>
           <Box
             border="2px dashed"
@@ -103,10 +171,7 @@ export default function ReportIssue() {
               <VStack gap={3}>
                 <img
                   src={photo} alt="preview"
-                  style={{
-                    maxHeight: 200, borderRadius: 10,
-                    objectFit: 'cover', maxWidth: '100%',
-                  }}
+                  style={{ maxHeight: 200, borderRadius: 10, objectFit: 'cover', maxWidth: '100%' }}
                 />
                 <Text fontSize="sm" color="brand.600" fontWeight="600">
                   ✓ Photo ready — tap to change
@@ -115,16 +180,12 @@ export default function ReportIssue() {
             ) : (
               <VStack gap={2}>
                 <Text fontSize="3xl">📷</Text>
-                <Text fontSize="sm" color="gray.500">
-                  Tap to upload or take a photo
-                </Text>
+                <Text fontSize="sm" color="gray.500">Tap to upload or take a photo</Text>
                 <Text fontSize="xs" color="gray.400">JPG or PNG · max 10MB</Text>
               </VStack>
             )}
           </Box>
-          {errors.photo && (
-            <Text fontSize="xs" color="red.500" mt={1}>{errors.photo}</Text>
-          )}
+          {errors.photo && <Text fontSize="xs" color="red.500" mt={1}>{errors.photo}</Text>}
         </Box>
 
         {/* Location */}
@@ -149,9 +210,7 @@ export default function ReportIssue() {
               📍 GPS
             </Button>
           </HStack>
-          {errors.location && (
-            <Text fontSize="xs" color="red.500" mt={1}>{errors.location}</Text>
-          )}
+          {errors.location && <Text fontSize="xs" color="red.500" mt={1}>{errors.location}</Text>}
         </Box>
 
         {/* Name + Phone */}
@@ -161,32 +220,26 @@ export default function ReportIssue() {
               Your name <Text as="span" color="red.400">*</Text>
             </Text>
             <Input
-              placeholder="Full name"
-              value={form.name} onChange={set('name')}
+              placeholder="Full name" value={form.name} onChange={set('name')}
               borderColor={border('name')}
               _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }}
             />
-            {errors.name && (
-              <Text fontSize="xs" color="red.500" mt={1}>{errors.name}</Text>
-            )}
+            {errors.name && <Text fontSize="xs" color="red.500" mt={1}>{errors.name}</Text>}
           </GridItem>
           <GridItem>
             <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
               Phone <Text as="span" color="red.400">*</Text>
             </Text>
             <Input
-              placeholder="+250 7XX XXX XXX"
-              value={form.phone} onChange={set('phone')}
+              placeholder="+250 7XX XXX XXX" value={form.phone} onChange={set('phone')}
               borderColor={border('phone')}
               _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }}
             />
-            {errors.phone && (
-              <Text fontSize="xs" color="red.500" mt={1}>{errors.phone}</Text>
-            )}
+            {errors.phone && <Text fontSize="xs" color="red.500" mt={1}>{errors.phone}</Text>}
           </GridItem>
         </Grid>
 
-        {/* Email optional */}
+        {/* Email */}
         <Box>
           <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
             Email{' '}
@@ -202,7 +255,26 @@ export default function ReportIssue() {
           />
         </Box>
 
-        {/* Submit */}
+        {/* AI progress indicator */}
+        {loading && (
+          <Box
+            bg="brand.50" border="1px solid" borderColor="brand.200"
+            borderRadius="xl" p={4}
+          >
+            <HStack gap={3}>
+              <Spinner size="sm" color="brand.600" />
+              <VStack align="start" gap={0}>
+                <Text fontSize="sm" fontWeight="600" color="brand.700">
+                  {STEPS[step]}
+                </Text>
+                <Text fontSize="xs" color="brand.500">
+                  Step {step} of {STEPS.length - 1}
+                </Text>
+              </VStack>
+            </HStack>
+          </Box>
+        )}
+
         <Button
           size="lg" bg="brand.600" color="white"
           _hover={{ bg: 'brand.700' }} fontWeight="800"
@@ -214,7 +286,7 @@ export default function ReportIssue() {
         </Button>
 
         <Text fontSize="xs" color="gray.400" textAlign="center">
-          AI identifies the issue and contacts the responsible Kigali institution automatically.
+          Gemini AI identifies the issue and contacts the responsible Kigali institution.
         </Text>
       </VStack>
     </Box>
