@@ -1,8 +1,8 @@
 import { Issue, Severity } from '../types'
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
-const TEXT_MODEL = 'llama-3.3-70b-versatile'
+const GEMINI_MODEL = 'gemini-1.5-flash'
+const GEMINI_URL = (model: string, key: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`
 
 // Kigali institution directory — used instead of live search
 const INSTITUTIONS: Record<string, { institution: string; institutionEmail: string; institutionReason: string }> = {
@@ -25,35 +25,33 @@ function parseJSON<T>(raw: string): T | null {
   }
 }
 
-async function groqChat(
-  model: string,
-  messages: object[],
-  maxTokens = 1024,
+type GeminiPart =
+  | { text: string }
+  | { inline_data: { mime_type: string; data: string } }
+
+async function geminiGenerate(
+  parts: GeminiPart[],
   _attempt = 0,
 ): Promise<string> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY
-  if (!apiKey) throw new Error('VITE_GROQ_API_KEY is not set')
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+  if (!apiKey) throw new Error('VITE_GEMINI_API_KEY is not set')
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 30_000)
 
   try {
-    const res = await fetch(GROQ_URL, {
+    const res = await fetch(GEMINI_URL(GEMINI_MODEL, apiKey), {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts }] }),
       signal: controller.signal,
     })
 
     if (!res.ok) {
-      // Auto-retry on rate limit (429) or server error (5xx), up to 2 extra attempts
       if ((res.status === 429 || res.status >= 500) && _attempt < 2) {
         clearTimeout(timer)
         await new Promise(r => setTimeout(r, (_attempt + 1) * 2000))
-        return groqChat(model, messages, maxTokens, _attempt + 1)
+        return geminiGenerate(parts, _attempt + 1)
       }
       const body = await res.text().catch(() => res.statusText)
       let detail = res.statusText
@@ -61,12 +59,14 @@ async function groqChat(
         const parsed = JSON.parse(body) as { error?: { message?: string } }
         detail = parsed?.error?.message ?? detail
       } catch { /* use statusText */ }
-      throw new Error(`Groq ${res.status}: ${detail}`)
+      throw new Error(`Gemini ${res.status}: ${detail}`)
     }
 
-    const data = await res.json() as { choices?: { message: { content: string } }[] }
-    const content = data.choices?.[0]?.message?.content
-    if (!content) throw new Error('Groq returned an empty response — please try again.')
+    const data = await res.json() as {
+      candidates?: { content: { parts: { text: string }[] } }[]
+    }
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!content) throw new Error('Gemini returned an empty response — please try again.')
     return content
   } finally {
     clearTimeout(timer)
@@ -92,17 +92,10 @@ export async function analyzeIssue(
 ): Promise<AnalysisResult> {
   const base64 = photoBase64.replace(/^data:image\/\w+;base64,/, '')
 
-  const messages = [
+  const parts: GeminiPart[] = [
+    { inline_data: { mime_type: 'image/jpeg', data: base64 } },
     {
-      role: 'user',
-      content: [
-        {
-          type: 'image_url',
-          image_url: { url: `data:image/jpeg;base64,${base64}` },
-        },
-        {
-          type: 'text',
-          text: `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda. Analyze this photo.
+      text: `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda. Analyze this photo.
 Location reported: ${location}
 
 Return ONLY valid JSON (no markdown, no explanation):
@@ -113,16 +106,14 @@ Return ONLY valid JSON (no markdown, no explanation):
   "severity": "low | medium | high",
   "isRealIssue": true
 }`,
-        },
-      ],
     },
   ]
 
   let text = ''
   try {
-    text = await groqChat(VISION_MODEL, messages, 512)
+    text = await geminiGenerate(parts)
   } catch (err) {
-    console.warn('[analyzeIssue] vision AI unavailable, using defaults:', err)
+    console.error('[analyzeIssue] Gemini error:', err)
   }
 
   const visionData = parseJSON<Omit<AnalysisResult, 'institution' | 'institutionEmail'>>(text) ?? {
@@ -141,12 +132,9 @@ Return ONLY valid JSON (no markdown, no explanation):
 // ── Call 2: Generate formal email body ────────────────────────────────────────
 
 export async function generateEmailBody(issue: Issue): Promise<string> {
-  return groqChat(
-    TEXT_MODEL,
-    [
-      {
-        role: 'user',
-        content: `Write a formal civic report email body to ${issue.institution} on behalf of Smart Kigali Alert.
+  return geminiGenerate([
+    {
+      text: `Write a formal civic report email body to ${issue.institution} on behalf of Smart Kigali Alert.
 
 Issue ID:      ${issue.id}
 Type:          ${issue.issueType}
@@ -158,10 +146,8 @@ Reported by:   ${issue.reporterName} (${issue.reporterPhone})
 Date:          ${new Date(issue.createdAt).toLocaleDateString('en-RW')}
 
 Write only the email body. Be professional and concise. End by asking them to acknowledge receipt and confirm action taken, referencing the Issue ID.`,
-      },
-    ],
-    1024,
-  )
+    },
+  ])
 }
 
 // ── Call 3: Verify resolution — compare before and after photos ───────────────
@@ -184,15 +170,20 @@ export async function verifyResolution(
   afterB64OrUrl: string,
   issueTitle: string,
 ): Promise<ResolutionVerdict> {
-  const text = await groqChat(
-    VISION_MODEL,
-    [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: `You are verifying whether a civic issue in Kigali has been resolved.
+  const beforeData = photoUrl(beforeB64OrUrl)
+  const afterData = photoUrl(afterB64OrUrl)
+
+  const beforePart: GeminiPart = beforeData.startsWith('http')
+    ? { text: `BEFORE image URL: ${beforeData}` }
+    : { inline_data: { mime_type: 'image/jpeg', data: beforeData.replace(/^data:image\/\w+;base64,/, '') } }
+
+  const afterPart: GeminiPart = afterData.startsWith('http')
+    ? { text: `AFTER image URL: ${afterData}` }
+    : { inline_data: { mime_type: 'image/jpeg', data: afterData.replace(/^data:image\/\w+;base64,/, '') } }
+
+  const text = await geminiGenerate([
+    {
+      text: `You are verifying whether a civic issue in Kigali has been resolved.
 Issue: "${issueTitle}"
 The FIRST image is BEFORE (the reported problem).
 The SECOND image is AFTER (the claimed resolution).
@@ -204,20 +195,10 @@ Return ONLY valid JSON (no markdown):
   "confidence": 85,
   "reasoning": "One clear sentence explaining your verdict"
 }`,
-          },
-          {
-            type: 'image_url',
-            image_url: { url: photoUrl(beforeB64OrUrl) },
-          },
-          {
-            type: 'image_url',
-            image_url: { url: photoUrl(afterB64OrUrl) },
-          },
-        ],
-      },
-    ],
-    256,
-  )
+    },
+    beforePart,
+    afterPart,
+  ])
 
   return (
     parseJSON<ResolutionVerdict>(text) ?? {
@@ -242,12 +223,9 @@ export async function generateFridayReminder(
     )
     .join('\n')
 
-  return groqChat(
-    TEXT_MODEL,
-    [
-      {
-        role: 'user',
-        content: `Write a Friday accountability reminder email from Smart Kigali Alert to ${institution}.
+  return geminiGenerate([
+    {
+      text: `Write a Friday accountability reminder email from Smart Kigali Alert to ${institution}.
 
 They have ${issues.length} unresolved issue(s) in Kigali:
 ${list}
@@ -256,8 +234,6 @@ Tone: polite but firm. Mention this is the weekly Friday follow-up.
 List each issue clearly. Ask for a status update or resolution proof by end of day. Note that citizens are monitoring these issues in real time on the Smart Kigali Alert dashboard.
 
 Write the email body only.`,
-      },
-    ],
-    1024,
-  )
+    },
+  ])
 }
