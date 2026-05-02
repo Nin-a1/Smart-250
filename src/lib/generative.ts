@@ -33,22 +33,30 @@ async function groqChat(
   const apiKey = import.meta.env.VITE_GROQ_API_KEY
   if (!apiKey) throw new Error('VITE_GROQ_API_KEY is not set')
 
-  const res = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30_000)
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
-    throw new Error(`Groq ${res.status}: ${err?.error?.message ?? res.statusText}`)
+  try {
+    const res = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
+      throw new Error(`Groq ${res.status}: ${err?.error?.message ?? res.statusText}`)
+    }
+
+    const data = await res.json() as { choices: { message: { content: string } }[] }
+    return data.choices[0].message.content
+  } finally {
+    clearTimeout(timer)
   }
-
-  const data = await res.json() as { choices: { message: { content: string } }[] }
-  return data.choices[0].message.content
 }
 
 // ── Call 1: Analyze photo with vision ─────────────────────────────────────────
