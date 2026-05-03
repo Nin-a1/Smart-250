@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { Box } from '@chakra-ui/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import AgentDashboard from './pages/AgentDashboard'
@@ -14,12 +13,11 @@ import { checkAndSendFridayReminders } from './lib/friday'
 
 function App() {
   useEffect(() => {
-    // Fire-and-forget — sends accountability emails every Friday automatically
     checkAndSendFridayReminders().catch(console.error)
   }, [])
 
   return (
-    <Box minH="100vh" bg="gray.50">
+    <div className="min-h-screen bg-gray-50">
       <Navbar />
       <Routes>
         <Route path="/" element={<Landing />} />
@@ -32,7 +30,7 @@ function App() {
         <Route path="/agent/confirmed/:id" element={<AgentConfirmed />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </Box>
+    </div>
   )
 }
 

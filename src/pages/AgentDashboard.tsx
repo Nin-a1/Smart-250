@@ -1,8 +1,4 @@
 import { useState, useEffect } from 'react'
-import {
-  Box, VStack, HStack, Text, Heading,
-  Button, Badge, Grid, GridItem, Spinner,
-} from '@chakra-ui/react'
 import { useNavigate } from 'react-router-dom'
 import { toaster } from '../lib/toaster'
 import { getIssues, getOpenIssues } from '../lib/storage'
@@ -10,8 +6,12 @@ import { generateFridayReminder } from '../lib/gemini'
 import { sendEmail } from '../lib/email'
 import { Issue } from '../types'
 
-const SEV_COLOR: Record<string, string> = { low: 'green', medium: 'orange', high: 'red' }
-const SEV_DOT:   Record<string, string> = { low: '#16a34a', medium: '#d97706', high: '#dc2626' }
+const SEV_BAR: Record<string, string>   = { low: '#16a34a', medium: '#d97706', high: '#dc2626' }
+const SEV_CLS: Record<string, string>   = {
+  low: 'bg-green-100 text-green-700',
+  medium: 'bg-orange-100 text-orange-700',
+  high: 'bg-red-100 text-red-700',
+}
 
 export default function AgentDashboard() {
   const navigate = useNavigate()
@@ -59,170 +59,155 @@ export default function AgentDashboard() {
   const resolved = issues.filter(i => i.status === 'resolved')
 
   return (
-    <Box bg="gray.50" minH="100vh">
-      <Box maxW="1100px" mx="auto" py={10} px={6}>
-        <VStack gap={8} align="stretch">
+    <div className="bg-gray-50 min-h-screen">
+      <div className="max-w-[1100px] mx-auto py-10 px-6 flex flex-col gap-8">
 
-          {/* Header */}
-          <HStack justify="space-between" flexWrap="wrap" gap={4}>
-            <VStack align="start" gap={1}>
-              <HStack gap={2}>
-                <Box bg="brand.600" color="white" borderRadius="lg" px={2} py={1} fontSize="xs" fontWeight="800">
-                  AGENT
-                </Box>
-                <Heading fontSize="xl" fontWeight="800" color="gray.900" letterSpacing="-0.02em">
-                  {agent?.institution}
-                </Heading>
-              </HStack>
-              <Text fontSize="sm" color="gray.500">Agent dashboard · manage your institution's issues</Text>
-            </VStack>
-            <HStack gap={2}>
-              <Button
-                size="sm" variant="outline" borderColor="orange.200" color="orange.600"
-                bg="white" _hover={{ bg: 'orange.50' }} borderRadius="lg"
-                onClick={simulateFriday} disabled={fridayLoading}
-              >
-                {fridayLoading
-                  ? <HStack gap={2}><Spinner size="xs" /><Text>Sending…</Text></HStack>
-                  : '📅 Friday Reminder'}
-              </Button>
-              <Button size="sm" variant="ghost" color="gray.500" _hover={{ color: 'gray.700', bg: 'gray.100' }} borderRadius="lg" onClick={logout}>
-                Log out
-              </Button>
-            </HStack>
-          </HStack>
+        {/* Header */}
+        <div className="flex justify-between items-start flex-wrap gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="bg-brand-600 text-white rounded-lg px-2 py-1 text-xs font-extrabold">AGENT</span>
+              <h1 className="text-xl font-extrabold text-gray-900 tracking-tight">{agent?.institution}</h1>
+            </div>
+            <p className="text-sm text-gray-500">Agent dashboard · manage your institution's issues</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-sm border border-orange-200 text-orange-600 bg-white rounded-lg hover:bg-orange-50 transition-colors disabled:opacity-60"
+              onClick={simulateFriday}
+              disabled={fridayLoading}
+            >
+              {fridayLoading ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-orange-600 border-t-transparent rounded-full animate-spin" />
+                  Sending…
+                </>
+              ) : '📅 Friday Reminder'}
+            </button>
+            <button
+              className="px-3 py-1.5 text-sm text-gray-500 rounded-lg hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              onClick={logout}
+            >
+              Log out
+            </button>
+          </div>
+        </div>
 
-          {/* Stats */}
-          <Grid templateColumns="repeat(3,1fr)" gap={4}>
-            {[
-              { label: 'Total Assigned', value: issues.length, color: 'gray.900', bg: 'white' },
-              { label: 'Open',           value: open.length,   color: 'orange.600', bg: 'orange.50' },
-              { label: 'Resolved',       value: resolved.length, color: 'green.600', bg: 'green.50' },
-            ].map(s => (
-              <GridItem key={s.label}>
-                <Box bg={s.bg} borderRadius="xl" p={5} textAlign="center" border="1px solid" borderColor="gray.100" shadow="0 1px 4px rgba(0,0,0,0.04)">
-                  <Text fontSize="3xl" fontWeight="800" color={s.color} letterSpacing="-0.02em">{s.value}</Text>
-                  <Text fontSize="xs" fontWeight="600" color="gray.500" textTransform="uppercase" letterSpacing="0.05em" mt={1}>{s.label}</Text>
-                </Box>
-              </GridItem>
-            ))}
-          </Grid>
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: 'Total Assigned', value: issues.length, cls: 'text-gray-900',   bg: 'bg-white' },
+            { label: 'Open',           value: open.length,   cls: 'text-orange-600', bg: 'bg-orange-50' },
+            { label: 'Resolved',       value: resolved.length, cls: 'text-green-600', bg: 'bg-green-50' },
+          ].map(s => (
+            <div key={s.label} className={`${s.bg} rounded-xl p-5 text-center border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]`}>
+              <p className={`text-3xl font-extrabold tracking-tight ${s.cls}`}>{s.value}</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-1">{s.label}</p>
+            </div>
+          ))}
+        </div>
 
-          {/* Open issues */}
-          <Box>
-            <HStack justify="space-between" mb={4}>
-              <Text fontWeight="700" fontSize="lg" color="gray.900">Open Issues</Text>
-              <Badge colorPalette="orange" variant="subtle" borderRadius="full" px={3}>
-                {open.length} pending
-              </Badge>
-            </HStack>
+        {/* Open issues */}
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <p className="font-bold text-lg text-gray-900">Open Issues</p>
+            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-orange-100 text-orange-700">{open.length} pending</span>
+          </div>
 
-            {open.length === 0 ? (
-              <Box bg="green.50" border="1px solid" borderColor="green.200" borderRadius="xl" p={12} textAlign="center">
-                <Text fontSize="3xl" mb={3}>🎉</Text>
-                <Text fontWeight="700" color="green.700" fontSize="lg">All issues resolved!</Text>
-                <Text fontSize="sm" color="green.600" mt={1}>No pending issues for your institution.</Text>
-              </Box>
-            ) : (
-              <VStack gap={3} align="stretch">
-                {open.map(issue => (
-                  <Box
-                    key={issue.id} bg="white" borderRadius="xl" overflow="hidden"
-                    border="1px solid" borderColor="gray.100"
-                    shadow="0 1px 4px rgba(0,0,0,0.04)"
-                    _hover={{ shadow: '0 4px 16px rgba(0,0,0,0.08)', borderColor: 'gray.200' }}
-                    transition="all 0.15s"
-                  >
-                    <Box h="3px" bg={SEV_DOT[issue.severity]} />
-                    <Box p={5}>
-                      <HStack justify="space-between" flexWrap="wrap" gap={3}>
-                        <HStack gap={4} flex={1} align="start">
-                          {/* Thumbnail */}
-                          {(issue.photoUrl || issue.photoBase64) && (
-                            <Box flexShrink={0} borderRadius="lg" overflow="hidden" w="80px" h="64px">
-                              <img
-                                src={issue.photoUrl || issue.photoBase64} alt="issue"
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              />
-                            </Box>
-                          )}
-                          <VStack align="start" gap={1} flex={1} minW={0}>
-                            <HStack gap={2} flexWrap="wrap">
-                              <Text fontSize="10px" fontFamily="mono" fontWeight="600" color="gray.400">{issue.id}</Text>
-                              <Badge colorPalette={SEV_COLOR[issue.severity]} variant="subtle" fontSize="10px" borderRadius="full" textTransform="capitalize">
-                                {issue.severity}
-                              </Badge>
-                              <Badge colorPalette="orange" variant="subtle" fontSize="10px" borderRadius="full">
-                                {daysSince(issue.createdAt)}d open
-                              </Badge>
-                            </HStack>
-                            <Text fontWeight="700" fontSize="sm" color="gray.900">{issue.title}</Text>
-                            <Text fontSize="xs" color="gray.500">📍 {issue.location}</Text>
-                            <Text fontSize="xs" color="gray.400" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{issue.description}</Text>
-                          </VStack>
-                        </HStack>
-                        <Button
-                          bg="brand.600" color="white" size="sm" fontWeight="700"
-                          borderRadius="lg" flexShrink={0}
-                          _hover={{ bg: 'brand.700' }}
-                          onClick={() => navigate(`/agent/resolve/${issue.id}`)}
-                        >
-                          Resolve →
-                        </Button>
-                      </HStack>
-                    </Box>
-                  </Box>
-                ))}
-              </VStack>
-            )}
-          </Box>
-
-          {/* Resolved history */}
-          {resolved.length > 0 && (
-            <Box>
-              <Text fontWeight="700" fontSize="lg" color="gray.900" mb={4}>Resolved Issues</Text>
-              <VStack gap={3} align="stretch">
-                {resolved.map(issue => (
-                  <Box
-                    key={issue.id} bg="white" borderRadius="xl" p={5}
-                    border="1px solid" borderColor="gray.100"
-                    shadow="0 1px 4px rgba(0,0,0,0.04)"
-                  >
-                    <HStack justify="space-between" flexWrap="wrap" gap={3}>
-                      <HStack gap={3} flex={1} minW={0}>
-                        {(issue.resolutionPhotoUrl || issue.photoUrl || issue.photoBase64) && (
-                          <Box flexShrink={0} borderRadius="lg" overflow="hidden" w="56px" h="44px" opacity={0.7}>
+          {open.length === 0 ? (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-12 text-center">
+              <p className="text-3xl mb-3">🎉</p>
+              <p className="font-bold text-green-700 text-lg">All issues resolved!</p>
+              <p className="text-sm text-green-600 mt-1">No pending issues for your institution.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {open.map(issue => (
+                <div
+                  key={issue.id}
+                  className="bg-white rounded-xl overflow-hidden border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.08)] hover:border-gray-200 transition-all duration-150"
+                >
+                  <div className="h-[3px]" style={{ background: SEV_BAR[issue.severity] }} />
+                  <div className="p-5">
+                    <div className="flex justify-between items-start flex-wrap gap-3">
+                      <div className="flex gap-4 flex-1 items-start">
+                        {(issue.photoUrl || issue.photoBase64) && (
+                          <div className="flex-shrink-0 rounded-lg overflow-hidden w-20 h-16">
                             <img
-                              src={issue.resolutionPhotoUrl || issue.photoUrl || issue.photoBase64} alt="resolved"
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              src={issue.photoUrl || issue.photoBase64} alt="issue"
+                              className="w-full h-full object-cover"
                             />
-                          </Box>
+                          </div>
                         )}
-                        <VStack align="start" gap={0} minW={0}>
-                          <HStack gap={2}>
-                            <Text fontSize="10px" fontFamily="mono" color="gray.400">{issue.id}</Text>
-                            <Badge colorPalette="green" variant="subtle" fontSize="10px" borderRadius="full">✓ Resolved</Badge>
-                          </HStack>
-                          <Text fontSize="sm" fontWeight="600" color="gray.700">{issue.title}</Text>
-                          <Text fontSize="xs" color="gray.400">📍 {issue.location}</Text>
-                        </VStack>
-                      </HStack>
-                      {issue.resolutionConfidence && (
-                        <VStack align="end" gap={0}>
-                          <Text fontSize="xs" color="gray.400">AI confidence</Text>
-                          <Text fontWeight="800" color="green.600" fontSize="xl" letterSpacing="-0.02em">
-                            {issue.resolutionConfidence}%
-                          </Text>
-                        </VStack>
-                      )}
-                    </HStack>
-                  </Box>
-                ))}
-              </VStack>
-            </Box>
+                        <div className="flex flex-col gap-1 flex-1 min-w-0">
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[10px] font-mono font-semibold text-gray-400">{issue.id}</span>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${SEV_CLS[issue.severity]}`}>{issue.severity}</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">{daysSince(issue.createdAt)}d open</span>
+                          </div>
+                          <p className="font-bold text-sm text-gray-900">{issue.title}</p>
+                          <p className="text-xs text-gray-500">📍 {issue.location}</p>
+                          <p className="text-xs text-gray-400" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {issue.description}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        className="px-4 py-2 bg-brand-600 text-white text-sm font-bold rounded-lg hover:bg-brand-700 transition-colors flex-shrink-0"
+                        onClick={() => navigate(`/agent/resolve/${issue.id}`)}
+                      >
+                        Resolve →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </VStack>
-      </Box>
-    </Box>
+        </div>
+
+        {/* Resolved history */}
+        {resolved.length > 0 && (
+          <div>
+            <p className="font-bold text-lg text-gray-900 mb-4">Resolved Issues</p>
+            <div className="flex flex-col gap-3">
+              {resolved.map(issue => (
+                <div
+                  key={issue.id}
+                  className="bg-white rounded-xl p-5 border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]"
+                >
+                  <div className="flex justify-between items-center flex-wrap gap-3">
+                    <div className="flex gap-3 flex-1 min-w-0 items-center">
+                      {(issue.resolutionPhotoUrl || issue.photoUrl || issue.photoBase64) && (
+                        <div className="flex-shrink-0 rounded-lg overflow-hidden w-14 h-11 opacity-70">
+                          <img
+                            src={issue.resolutionPhotoUrl || issue.photoUrl || issue.photoBase64} alt="resolved"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-0 min-w-0">
+                        <div className="flex gap-2 items-center">
+                          <span className="text-[10px] font-mono text-gray-400">{issue.id}</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">✓ Resolved</span>
+                        </div>
+                        <p className="text-sm font-semibold text-gray-700">{issue.title}</p>
+                        <p className="text-xs text-gray-400">📍 {issue.location}</p>
+                      </div>
+                    </div>
+                    {issue.resolutionConfidence && (
+                      <div className="text-right">
+                        <p className="text-xs text-gray-400">AI confidence</p>
+                        <p className="font-extrabold text-green-600 text-xl tracking-tight">{issue.resolutionConfidence}%</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

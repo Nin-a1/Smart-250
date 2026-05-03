@@ -117,13 +117,15 @@ export async function analyzeIssue(
           text: `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda. Analyze this photo.
 Location reported: ${location}
 
+First decide: does this image actually show a real urban/civic infrastructure problem (pothole, broken streetlight, illegal waste, flooding, damaged sidewalk, etc.)? If it shows something irrelevant — a person, animal, food, indoor scene, selfie, or anything unrelated to public infrastructure — set isRealIssue to false.
+
 Return ONLY valid JSON (no markdown, no explanation):
 {
   "issueType": "pothole | streetlight | waste | flooding | sidewalk | infrastructure | other",
   "title": "Short specific title for this exact issue",
   "description": "2-3 sentences describing what you see and its impact on Kigali residents",
   "severity": "low | medium | high",
-  "isRealIssue": true
+  "isRealIssue": true or false
 }`,
         },
       ],
@@ -142,12 +144,12 @@ Return ONLY valid JSON (no markdown, no explanation):
     title: 'Urban issue reported in Kigali',
     description: 'A civic issue has been reported and requires attention.',
     severity: 'medium' as Severity,
-    isRealIssue: true,
+    isRealIssue: false,
   }
 
   const instData = INSTITUTIONS[visionData.issueType] ?? INSTITUTIONS.other
 
-  return { ...visionData, ...instData, isRealIssue: visionData.isRealIssue ?? true }
+  return { ...visionData, ...instData, isRealIssue: visionData.isRealIssue ?? false }
 }
 
 // ── Call 2: Generate formal email body ────────────────────────────────────────

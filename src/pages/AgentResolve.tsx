@@ -1,8 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import {
-  Box, VStack, HStack, Text, Heading,
-  Button, Badge, Spinner, Grid,
-} from '@chakra-ui/react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toaster } from '../lib/toaster'
 import { verifyResolution } from '../lib/gemini'
@@ -11,7 +7,11 @@ import { getIssueById, updateIssue } from '../lib/storage'
 import { extractGpsFromFile } from '../lib/exif'
 import { Issue } from '../types'
 
-const sevColor: Record<string, string> = { low: 'green', medium: 'orange', high: 'red' }
+const SEV_CLS: Record<string, string> = {
+  low: 'bg-green-100 text-green-700',
+  medium: 'bg-orange-100 text-orange-700',
+  high: 'bg-red-100 text-red-700',
+}
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6_371_000
@@ -71,10 +71,7 @@ export default function AgentResolve() {
   const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !issue) return
-
-    // Start EXIF extraction and compression in parallel
     setGpsStatus('reading_exif')
-
     const [compressed, exifCoords] = await Promise.all([
       new Promise<string>(resolve => {
         const reader = new FileReader()
@@ -83,22 +80,17 @@ export default function AgentResolve() {
       }),
       extractGpsFromFile(file),
     ])
-
     setAfterPhoto(compressed)
-
-    // Process GPS from EXIF
     if (issue.lat === undefined || issue.lon === undefined) {
       setGpsStatus('no_original')
       return
     }
-
     if (exifCoords) {
       const dist = haversineMeters(issue.lat, issue.lon, exifCoords.lat, exifCoords.lon)
       setAgentGps({ lat: exifCoords.lat, lon: exifCoords.lon })
       setDistanceM(Math.round(dist))
       setGpsSource('exif')
       setGpsStatus(dist <= 300 ? 'match' : 'mismatch')
-
       if (dist > 300) {
         toaster.create({
           title: '⚠️ Photo not taken at the scene',
@@ -110,7 +102,6 @@ export default function AgentResolve() {
         toaster.create({ title: '✅ Location verified from photo', type: 'success' })
       }
     } else {
-      // No EXIF GPS in photo — fall back to manual GPS
       setGpsStatus('idle')
       toaster.create({
         title: 'No GPS data in photo',
@@ -131,7 +122,6 @@ export default function AgentResolve() {
         const { latitude: lat, longitude: lon } = pos.coords
         setAgentGps({ lat, lon })
         setGpsSource('manual')
-
         if (issue?.lat !== undefined && issue?.lon !== undefined) {
           const dist = haversineMeters(issue.lat, issue.lon, lat, lon)
           setDistanceM(Math.round(dist))
@@ -148,11 +138,7 @@ export default function AgentResolve() {
     )
   }
 
-  // Only allow verification if location is confirmed within range
-  const locationOk =
-    gpsStatus === 'match' ||
-    gpsStatus === 'no_original'
-
+  const locationOk = gpsStatus === 'match' || gpsStatus === 'no_original'
   const canVerify = !!afterPhoto && locationOk
 
   const handleVerify = async () => {
@@ -162,13 +148,11 @@ export default function AgentResolve() {
     }
     setLoading(true)
     setVerdict(null)
-
     try {
       setStepMsg('AI comparing before and after photos…')
       const beforeSrc = issue.photoUrl || issue.photoBase64
       const result = await verifyResolution(beforeSrc, afterPhoto, issue.title)
       setVerdict(result)
-
       if (result.resolved) {
         setStepMsg('Updating issue status…')
         await updateIssue(issue.id, {
@@ -179,7 +163,6 @@ export default function AgentResolve() {
           resolutionConfidence: result.confidence,
           ...(agentGps ?? {}),
         })
-
         if (issue.reporterEmail) {
           setStepMsg('Notifying reporter by email…')
           try {
@@ -222,266 +205,243 @@ export default function AgentResolve() {
   }
 
   if (!issue) return (
-    <Box textAlign="center" py={20}>
-      <Text color="gray.400">Issue not found</Text>
-      <Button mt={4} onClick={() => navigate('/agent/dashboard')}>Back to dashboard</Button>
-    </Box>
+    <div className="text-center py-20">
+      <p className="text-gray-400">Issue not found</p>
+      <button className="mt-4 px-4 py-2 text-brand-600 hover:underline" onClick={() => navigate('/agent/dashboard')}>
+        Back to dashboard
+      </button>
+    </div>
   )
 
   return (
-    <Box maxW="680px" mx="auto" py={10} px={6}>
-      <VStack gap={7} align="stretch">
+    <div className="max-w-[680px] mx-auto py-10 px-6">
+      <div className="flex flex-col gap-7">
 
-        <Button variant="ghost" size="sm" color="gray.500" alignSelf="start"
-          onClick={() => navigate('/agent/dashboard')}>
+        <button
+          className="self-start text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          onClick={() => navigate('/agent/dashboard')}
+        >
           ← Back to dashboard
-        </Button>
+        </button>
 
-        <VStack align="start" gap={1}>
-          <HStack gap={2}>
-            <Text fontSize="xl">🔧</Text>
-            <Heading fontSize="xl" fontWeight="800" color="gray.800">Resolve Issue</Heading>
-          </HStack>
-          <Text fontSize="sm" color="gray.500">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl">🔧</span>
+            <h1 className="text-xl font-extrabold text-gray-800">Resolve Issue</h1>
+          </div>
+          <p className="text-sm text-gray-500">
             Upload a photo taken at the fixed location. GPS is read from the photo automatically — you must be within 300m of the original site.
-          </Text>
-        </VStack>
+          </p>
+        </div>
 
         {/* Original issue */}
-        <Box bg="orange.50" border="1px solid" borderColor="orange.200" borderRadius="xl" p={5}>
-          <Text fontSize="xs" fontWeight="700" color="orange.600"
-            textTransform="uppercase" letterSpacing="wider" mb={4}>
-            Original Report
-          </Text>
-          <Grid templateColumns={{ base: '1fr', sm: '1fr 1fr' }} gap={4}>
-            <VStack align="start" gap={2}>
-              <Text fontWeight="700" fontSize="sm" color="gray.800">{issue.title}</Text>
-              <Text fontSize="xs" color="gray.500" lineHeight="tall">{issue.description}</Text>
-              <Text fontSize="xs" color="gray.500">📍 {issue.location}</Text>
-              <Text fontSize="xs" color="gray.500">👤 {issue.reporterName} · {issue.reporterPhone}</Text>
-              <HStack gap={2}>
-                <Badge colorPalette={sevColor[issue.severity]} variant="subtle" fontSize="10px" textTransform="capitalize">
-                  {issue.severity}
-                </Badge>
-                <Badge colorPalette="blue" variant="subtle" fontSize="10px" textTransform="capitalize">
-                  {issue.issueType}
-                </Badge>
-              </HStack>
-            </VStack>
-            <Box>
-              <Text fontSize="xs" color="gray.400" mb={1}>Before photo</Text>
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
+          <p className="text-xs font-bold text-orange-600 uppercase tracking-wider mb-4">Original Report</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <p className="font-bold text-sm text-gray-800">{issue.title}</p>
+              <p className="text-xs text-gray-500 leading-relaxed">{issue.description}</p>
+              <p className="text-xs text-gray-500">📍 {issue.location}</p>
+              <p className="text-xs text-gray-500">👤 {issue.reporterName} · {issue.reporterPhone}</p>
+              <div className="flex gap-2 flex-wrap">
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${SEV_CLS[issue.severity]}`}>{issue.severity}</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 capitalize">{issue.issueType}</span>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Before photo</p>
               <img src={issue.photoUrl || issue.photoBase64} alt="before"
-                style={{ width: '100%', height: 130, objectFit: 'cover', borderRadius: 8 }} />
-            </Box>
-          </Grid>
-        </Box>
+                className="w-full rounded-lg object-cover" style={{ height: 130 }} />
+            </div>
+          </div>
+        </div>
 
         {/* Step 1 — After photo */}
-        <Box>
-          <HStack gap={2} mb={2}>
-            <Box w="20px" h="20px" borderRadius="full" bg="brand.600"
-              display="flex" alignItems="center" justifyContent="center">
-              <Text fontSize="xs" color="white" fontWeight="800">1</Text>
-            </Box>
-            <Text fontWeight="600" fontSize="sm" color="gray.700">
-              Upload proof-of-fix photo{' '}
-              <Text as="span" color="red.400">*</Text>
-            </Text>
-          </HStack>
-
-          <Box
-            border="2px dashed"
-            borderColor={afterPhoto ? 'green.400' : 'gray.200'}
-            borderRadius="xl" p={6} textAlign="center" cursor="pointer"
-            bg={afterPhoto ? 'green.50' : 'gray.50'}
-            _hover={{ borderColor: 'green.400', bg: 'green.50' }}
-            transition="all 0.2s"
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-5 h-5 rounded-full bg-brand-600 flex items-center justify-center">
+              <span className="text-xs text-white font-extrabold">1</span>
+            </div>
+            <p className="font-semibold text-sm text-gray-700">
+              Upload proof-of-fix photo <span className="text-red-400">*</span>
+            </p>
+          </div>
+          <div
+            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
+              afterPhoto ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-gray-50 hover:border-green-400 hover:bg-green-50'
+            }`}
             onClick={() => fileRef.current?.click()}
           >
-            <input ref={fileRef} type="file" accept="image/*"
-              style={{ display: 'none' }} onChange={handlePhoto} />
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
             {gpsStatus === 'reading_exif' ? (
-              <VStack gap={2}>
-                <Spinner size="md" color="brand.600" />
-                <Text fontSize="sm" color="brand.600" fontWeight="600">Reading GPS from photo…</Text>
-              </VStack>
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm text-brand-600 font-semibold">Reading GPS from photo…</p>
+              </div>
             ) : afterPhoto ? (
-              <VStack gap={3}>
-                <img src={afterPhoto} alt="after"
-                  style={{ maxHeight: 200, borderRadius: 10, objectFit: 'cover', maxWidth: '100%' }} />
-                <Text fontSize="sm" color="green.600" fontWeight="600">
-                  ✓ After photo ready — tap to change
-                </Text>
-              </VStack>
+              <div className="flex flex-col items-center gap-3">
+                <img src={afterPhoto} alt="after" className="max-h-48 rounded-lg object-cover max-w-full" />
+                <p className="text-sm text-green-600 font-semibold">✓ After photo ready — tap to change</p>
+              </div>
             ) : (
-              <VStack gap={2}>
-                <Text fontSize="3xl">📸</Text>
-                <Text fontSize="sm" color="gray.500">Tap to upload the fixed photo</Text>
-                <Text fontSize="xs" color="gray.400">GPS is read automatically from the image</Text>
-              </VStack>
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-4xl">📸</span>
+                <p className="text-sm text-gray-500">Tap to upload the fixed photo</p>
+                <p className="text-xs text-gray-400">GPS is read automatically from the image</p>
+              </div>
             )}
-          </Box>
-        </Box>
+          </div>
+        </div>
 
-        {/* Step 2 — Location verification */}
-        <Box>
-          <HStack gap={2} mb={3}>
-            <Box w="20px" h="20px" borderRadius="full"
-              bg={gpsStatus === 'match' ? 'green.500' : gpsStatus === 'mismatch' ? 'red.500' : 'brand.600'}
-              display="flex" alignItems="center" justifyContent="center">
-              <Text fontSize="xs" color="white" fontWeight="800">2</Text>
-            </Box>
-            <Text fontWeight="600" fontSize="sm" color="gray.700">Location verification</Text>
-          </HStack>
+        {/* Step 2 — Location */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
+              gpsStatus === 'match' ? 'bg-green-500' : gpsStatus === 'mismatch' ? 'bg-red-500' : 'bg-brand-600'
+            }`}>
+              <span className="text-xs text-white font-extrabold">2</span>
+            </div>
+            <p className="font-semibold text-sm text-gray-700">Location verification</p>
+          </div>
 
           {gpsStatus === 'no_original' && (
-            <Box bg="gray.50" border="1px solid" borderColor="gray.200" borderRadius="xl" p={4}>
-              <Text fontSize="sm" color="gray.500">
-                ⚠️ The original report had no GPS coordinates — location check skipped.
-              </Text>
-            </Box>
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">⚠️ The original report had no GPS coordinates — location check skipped.</p>
+            </div>
           )}
 
           {(gpsStatus === 'idle' || gpsStatus === 'capturing') && afterPhoto && (
-            <Box>
-              <Box bg="yellow.50" border="1px solid" borderColor="yellow.200" borderRadius="xl" p={4} mb={3}>
-                <Text fontSize="sm" color="yellow.800">
+            <div>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-3">
+                <p className="text-sm text-yellow-800">
                   📷 No GPS found in the photo. Please capture your location manually to prove you are at the scene.
-                </Text>
-              </Box>
-              <Button
+                </p>
+              </div>
+              <button
                 onClick={captureGps}
                 disabled={gpsStatus === 'capturing'}
-                variant="outline" borderColor="brand.400" color="brand.700"
-                _hover={{ bg: 'brand.50' }} w="full" h="52px"
+                className="w-full h-[52px] border border-brand-400 text-brand-700 font-semibold rounded-xl hover:bg-brand-50 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
               >
-                {gpsStatus === 'capturing'
-                  ? <HStack gap={2}><Spinner size="sm" /><Text>Getting your location…</Text></HStack>
-                  : '📍 Capture My Location Manually'}
-              </Button>
-            </Box>
+                {gpsStatus === 'capturing' ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+                    Getting your location…
+                  </>
+                ) : '📍 Capture My Location Manually'}
+              </button>
+            </div>
           )}
 
           {(gpsStatus === 'match' || gpsStatus === 'mismatch') && (
-            <Box
-              bg={gpsStatus === 'match' ? 'green.50' : 'red.50'}
-              border="1px solid"
-              borderColor={gpsStatus === 'match' ? 'green.200' : 'red.200'}
-              borderRadius="xl" p={4}
-            >
-              <HStack gap={3}>
-                <Text fontSize="2xl">{gpsStatus === 'match' ? '✅' : '🚫'}</Text>
-                <VStack align="start" gap={0}>
-                  <Text fontWeight="700" fontSize="sm"
-                    color={gpsStatus === 'match' ? 'green.700' : 'red.700'}>
+            <div className={`border rounded-xl p-4 ${gpsStatus === 'match' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+              <div className="flex gap-3 items-start">
+                <span className="text-2xl">{gpsStatus === 'match' ? '✅' : '🚫'}</span>
+                <div>
+                  <p className={`font-bold text-sm ${gpsStatus === 'match' ? 'text-green-700' : 'text-red-700'}`}>
                     {gpsStatus === 'match'
                       ? `Location confirmed — ${distanceM}m from the reported site`
                       : `Too far — ${distanceM}m from the reported site (max 300m)`}
-                  </Text>
-                  <Text fontSize="xs" color={gpsStatus === 'match' ? 'green.600' : 'red.600'}>
+                  </p>
+                  <p className={`text-xs mt-0.5 ${gpsStatus === 'match' ? 'text-green-600' : 'text-red-600'}`}>
                     {gpsSource === 'exif' ? 'GPS read from photo metadata' : 'GPS captured manually'}
                     {gpsStatus === 'mismatch' && ' · You must be at the scene to resolve this issue'}
-                  </Text>
-                </VStack>
-              </HStack>
+                  </p>
+                </div>
+              </div>
               {gpsStatus === 'mismatch' && (
-                <Button mt={3} size="sm" variant="ghost" color="red.600"
-                  onClick={() => {
-                    setGpsStatus('idle'); setAgentGps(null)
-                    setDistanceM(null); setAfterPhoto(null); setGpsSource(null)
-                  }}>
+                <button
+                  className="mt-3 text-sm text-red-600 hover:underline"
+                  onClick={() => { setGpsStatus('idle'); setAgentGps(null); setDistanceM(null); setAfterPhoto(null); setGpsSource(null) }}
+                >
                   Upload a different photo
-                </Button>
+                </button>
               )}
-            </Box>
+            </div>
           )}
-        </Box>
+        </div>
 
         {/* AI verdict */}
         {verdict && (
-          <Box
-            bg={verdict.resolved ? 'green.50' : 'red.50'}
-            border="1px solid"
-            borderColor={verdict.resolved ? 'green.200' : 'red.200'}
-            borderRadius="xl" p={6}
-          >
-            <HStack gap={3} mb={3}>
-              <Text fontSize="2xl">{verdict.resolved ? '✅' : '❌'}</Text>
-              <VStack align="start" gap={0}>
-                <Text fontWeight="800" fontSize="md"
-                  color={verdict.resolved ? 'green.700' : 'red.700'}>
+          <div className={`border rounded-xl p-6 ${verdict.resolved ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+            <div className="flex gap-3 items-start mb-3">
+              <span className="text-2xl">{verdict.resolved ? '✅' : '❌'}</span>
+              <div>
+                <p className={`font-extrabold text-base ${verdict.resolved ? 'text-green-700' : 'text-red-700'}`}>
                   {verdict.resolved ? 'Issue confirmed resolved' : 'Resolution not confirmed'}
-                </Text>
-                <Text fontSize="sm" color={verdict.resolved ? 'green.600' : 'red.600'}>
+                </p>
+                <p className={`text-sm ${verdict.resolved ? 'text-green-600' : 'text-red-600'}`}>
                   AI confidence: {verdict.confidence}%
-                </Text>
-              </VStack>
-            </HStack>
-            <Text fontSize="sm" color="gray.600" lineHeight="tall">{verdict.reasoning}</Text>
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 leading-relaxed">{verdict.reasoning}</p>
             {verdict.resolved && (
-              <Box mt={4} bg="green.100" borderRadius="lg" p={3}>
-                <Text fontSize="xs" color="green.800" fontWeight="600">
+              <div className="mt-4 bg-green-100 rounded-lg p-3">
+                <p className="text-xs text-green-800 font-semibold">
                   Dashboard updated ·{' '}
                   {issue.reporterEmail
                     ? 'Reporter notified by email'
                     : 'Reporter phone on record: ' + issue.reporterPhone}
-                </Text>
-              </Box>
+                </p>
+              </div>
             )}
-          </Box>
+          </div>
         )}
 
         {/* Progress */}
         {loading && (
-          <Box bg="brand.50" border="1px solid" borderColor="brand.200" borderRadius="xl" p={4}>
-            <HStack gap={3}>
-              <Spinner size="sm" color="brand.600" />
-              <Text fontSize="sm" fontWeight="600" color="brand.700">{stepMsg}</Text>
-            </HStack>
-          </Box>
+          <div className="bg-brand-50 border border-brand-200 rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-4 h-4 border-2 border-brand-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <p className="text-sm font-semibold text-brand-700">{stepMsg}</p>
+            </div>
+          </div>
         )}
 
-        {/* Action buttons */}
+        {/* Actions */}
         {!verdict && (
-          <Box>
+          <div>
             {afterPhoto && !locationOk && gpsStatus !== 'reading_exif' && gpsStatus !== 'capturing' && gpsStatus !== 'idle' && (
-              <Box bg="red.50" border="1px solid" borderColor="red.200" borderRadius="lg" p={3} mb={3}>
-                <Text fontSize="sm" color="red.700" fontWeight="600" textAlign="center">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+                <p className="text-sm text-red-700 font-semibold text-center">
                   🚫 You must be within 300m of the original issue location to resolve it.
-                </Text>
-              </Box>
+                </p>
+              </div>
             )}
-            <Button
-              size="lg" bg="brand.600" color="white"
-              _hover={{ bg: 'brand.700' }} fontWeight="800"
+            <button
+              className="h-14 w-full bg-brand-600 text-white font-extrabold rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               onClick={handleVerify}
               disabled={loading || !canVerify}
-              h="56px" w="full"
             >
-              {loading
-                ? <HStack gap={2}><Spinner size="sm" /><Text>Verifying…</Text></HStack>
-                : '🤖 Verify Resolution with AI →'}
-            </Button>
-          </Box>
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Verifying…
+                </>
+              ) : '🤖 Verify Resolution with AI →'}
+            </button>
+          </div>
         )}
 
         {verdict && (
-          <Grid templateColumns="1fr 1fr" gap={3}>
+          <div className="grid grid-cols-2 gap-3">
             {!verdict.resolved && (
-              <Button variant="outline" borderColor="brand.400"
-                color="brand.700" _hover={{ bg: 'brand.50' }}
-                onClick={() => { setVerdict(null); setAfterPhoto(null); setGpsStatus('idle'); setGpsSource(null) }}>
+              <button
+                className="py-2.5 border border-brand-400 text-brand-700 font-semibold rounded-lg hover:bg-brand-50 transition-colors"
+                onClick={() => { setVerdict(null); setAfterPhoto(null); setGpsStatus('idle'); setGpsSource(null) }}
+              >
                 Try again
-              </Button>
+              </button>
             )}
-            <Button bg="brand.600" color="white" _hover={{ bg: 'brand.700' }}
-              gridColumn={verdict.resolved ? '1 / -1' : 'auto'}
-              onClick={() => navigate('/agent/dashboard')}>
+            <button
+              className={`py-2.5 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700 transition-colors ${verdict.resolved ? 'col-span-2' : ''}`}
+              onClick={() => navigate('/agent/dashboard')}
+            >
               Back to dashboard
-            </Button>
-          </Grid>
+            </button>
+          </div>
         )}
-      </VStack>
-    </Box>
+      </div>
+    </div>
   )
 }

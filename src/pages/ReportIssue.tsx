@@ -1,8 +1,4 @@
 import { useState, useRef } from 'react'
-import {
-  Box, VStack, HStack, Text, Heading,
-  Button, Input, Grid, GridItem, Spinner,
-} from '@chakra-ui/react'
 import { useNavigate } from 'react-router-dom'
 import { toaster } from '../lib/toaster'
 import { analyzeIssue, generateEmailBody } from '../lib/gemini'
@@ -41,7 +37,6 @@ export default function ReportIssue() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Extract GPS from EXIF before canvas strips it
     extractGpsFromFile(file).then(async coords => {
       if (coords) {
         setGps(coords)
@@ -55,7 +50,6 @@ export default function ReportIssue() {
       }
     })
 
-    // Compress image via canvas (strips EXIF — GPS already extracted above)
     const reader = new FileReader()
     reader.onloadend = () => {
       const img = new Image()
@@ -103,11 +97,20 @@ export default function ReportIssue() {
   const handleSubmit = async () => {
     if (!validate()) return
     setLoading(true)
-
     try {
       setStep(1)
       setStep(2)
       const analysis = await analyzeIssue(photo!, form.location)
+
+      if (!analysis.isRealIssue) {
+        toaster.create({
+          title: 'Image not recognized as a civic issue',
+          description: 'Please upload a clear photo of an actual urban problem (pothole, waste, flooding, broken streetlight, etc.).',
+          type: 'error',
+          duration: 8000,
+        })
+        return
+      }
 
       const issue: Issue = {
         id: generateId(),
@@ -122,50 +125,31 @@ export default function ReportIssue() {
         createdAt: new Date().toISOString(),
         ...(gps ?? {}),
       }
-
       setStep(3)
       setStep(4)
       try {
         const body = await generateEmailBody(issue)
         await sendEmail({
-          toEmail:       issue.institutionEmail,
-          toName:        issue.institution,
-          issueId:       issue.id,
-          issueTitle:    issue.title,
-          location:      issue.location,
-          severity:      issue.severity,
-          reporterName:  issue.reporterName,
-          reporterPhone: issue.reporterPhone,
+          toEmail: issue.institutionEmail, toName: issue.institution,
+          issueId: issue.id, issueTitle: issue.title,
+          location: issue.location, severity: issue.severity,
+          reporterName: issue.reporterName, reporterPhone: issue.reporterPhone,
           body,
         })
         issue.emailSent = true
       } catch {
-        toaster.create({
-          title: 'Email could not send',
-          description: 'Issue saved anyway.',
-          type: 'warning',
-        })
+        toaster.create({ title: 'Email could not send', description: 'Issue saved anyway.', type: 'warning' })
       }
-
       setStep(5)
       await saveIssue(issue)
-
-      // Notify the reporter that their submission was received
       if (issue.reporterEmail) {
         sendReporterConfirmation(
-          issue.reporterEmail,
-          issue.reporterName,
-          issue.id,
-          issue.title,
-          issue.location,
-          issue.severity,
-          issue.institution,
-          issue.reporterPhone,
+          issue.reporterEmail, issue.reporterName, issue.id,
+          issue.title, issue.location, issue.severity,
+          issue.institution, issue.reporterPhone,
         ).catch(err => console.warn('[email] reporter confirmation failed:', err))
       }
-
       navigate(`/confirmation/${issue.id}`)
-
     } catch (err) {
       console.error('[ReportIssue]', err)
       const msg =
@@ -181,150 +165,142 @@ export default function ReportIssue() {
     }
   }
 
-  const border = (field: string) => errors[field] ? 'red.400' : 'gray.200'
+  const inputCls = (field: string) =>
+    `w-full px-3 py-2 border rounded-lg text-sm bg-white transition-colors outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 ${
+      errors[field] ? 'border-red-400' : 'border-gray-200'
+    }`
 
   return (
-    <Box maxW="620px" mx="auto" py={10} px={6}>
-      <VStack gap={7} align="stretch">
+    <div className="max-w-[620px] mx-auto py-10 px-6">
+      <div className="flex flex-col gap-7">
 
-        <VStack align="start" gap={1}>
-          <HStack gap={2}>
-            <Text fontSize="2xl">📸</Text>
-            <Heading fontSize="2xl" fontWeight="800" color="gray.800">Report an Issue</Heading>
-          </HStack>
-          <Text color="gray.500" fontSize="sm">
-            AI identifies the problem and alerts the right institution automatically.
-          </Text>
-        </VStack>
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-2xl">📸</span>
+            <h1 className="text-2xl font-extrabold text-gray-800">Report an Issue</h1>
+          </div>
+          <p className="text-sm text-gray-500">AI identifies the problem and alerts the right institution automatically.</p>
+        </div>
 
         {/* Photo */}
-        <Box>
-          <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
-            Photo of the issue <Text as="span" color="red.400">*</Text>
-          </Text>
-          <Box
-            border="2px dashed"
-            borderColor={errors.photo ? 'red.300' : photo ? 'brand.400' : 'gray.200'}
-            borderRadius="xl" p={6} textAlign="center" cursor="pointer"
-            bg={photo ? 'brand.50' : 'gray.50'}
-            _hover={{ borderColor: 'brand.400', bg: 'brand.50' }}
-            transition="all 0.2s"
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Photo of the issue <span className="text-red-400">*</span>
+          </label>
+          <div
+            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
+              errors.photo ? 'border-red-300' : photo ? 'border-brand-400 bg-brand-50' : 'border-gray-200 bg-gray-50 hover:border-brand-400 hover:bg-brand-50'
+            }`}
             onClick={() => fileRef.current?.click()}
           >
-            <input ref={fileRef} type="file" accept="image/*"
-              style={{ display: 'none' }} onChange={handlePhoto} />
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
             {photo ? (
-              <VStack gap={3}>
-                <img src={photo} alt="preview"
-                  style={{ maxHeight: 200, borderRadius: 10, objectFit: 'cover', maxWidth: '100%' }} />
-                <Text fontSize="sm" color="brand.600" fontWeight="600">
-                  ✓ Photo ready — tap to change
-                </Text>
-              </VStack>
+              <div className="flex flex-col items-center gap-3">
+                <img src={photo} alt="preview" className="max-h-48 rounded-lg object-cover max-w-full" />
+                <p className="text-sm text-brand-600 font-semibold">✓ Photo ready — tap to change</p>
+              </div>
             ) : (
-              <VStack gap={2}>
-                <Text fontSize="3xl">📷</Text>
-                <Text fontSize="sm" color="gray.500">Tap to upload or take a photo</Text>
-                <Text fontSize="xs" color="gray.400">Location is read automatically from the photo</Text>
-              </VStack>
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-4xl">📷</span>
+                <p className="text-sm text-gray-500">Tap to upload or take a photo</p>
+                <p className="text-xs text-gray-400">Location is read automatically from the photo</p>
+              </div>
             )}
-          </Box>
-          {errors.photo && <Text fontSize="xs" color="red.500" mt={1}>{errors.photo}</Text>}
-        </Box>
+          </div>
+          {errors.photo && <p className="text-xs text-red-500 mt-1">{errors.photo}</p>}
+        </div>
 
         {/* Location */}
-        <Box>
-          <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
-            Location <Text as="span" color="red.400">*</Text>
-          </Text>
-          <HStack>
-            <Input
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Location <span className="text-red-400">*</span>
+          </label>
+          <div className="flex gap-2">
+            <input
+              className={inputCls('location')}
               placeholder="e.g. KN 5 Rd, near Convention Centre"
-              value={form.location} onChange={set('location')}
-              borderColor={border('location')}
-              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }}
-              flex={1}
+              value={form.location}
+              onChange={set('location')}
             />
-            <Button
-              onClick={getGPS} flexShrink={0}
-              variant="outline" borderColor="brand.400"
-              color="brand.600" _hover={{ bg: 'brand.50' }}
-              size="sm" px={4}
+            <button
+              onClick={getGPS}
+              className="flex-shrink-0 px-4 py-2 border border-brand-400 text-brand-600 text-sm font-medium rounded-lg hover:bg-brand-50 transition-colors"
             >
               📍 GPS
-            </Button>
-          </HStack>
-          {errors.location && <Text fontSize="xs" color="red.500" mt={1}>{errors.location}</Text>}
+            </button>
+          </div>
+          {errors.location && <p className="text-xs text-red-500 mt-1">{errors.location}</p>}
           {gps && (
-            <Text fontSize="xs" color="brand.600" mt={1}>
+            <p className="text-xs text-brand-600 mt-1">
               {gpsSource === 'exif'
                 ? '✓ Exact location extracted from photo metadata'
                 : '✓ GPS coords saved · map pin will appear on dashboard'}
-            </Text>
+            </p>
           )}
-        </Box>
+        </div>
 
         {/* Name + Phone */}
-        <Grid templateColumns={{ base: '1fr', sm: '1fr 1fr' }} gap={4}>
-          <GridItem>
-            <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
-              Your name <Text as="span" color="red.400">*</Text>
-            </Text>
-            <Input placeholder="Full name" value={form.name} onChange={set('name')}
-              borderColor={border('name')}
-              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }} />
-            {errors.name && <Text fontSize="xs" color="red.500" mt={1}>{errors.name}</Text>}
-          </GridItem>
-          <GridItem>
-            <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
-              Phone <Text as="span" color="red.400">*</Text>
-            </Text>
-            <Input placeholder="+250 7XX XXX XXX" value={form.phone} onChange={set('phone')}
-              borderColor={border('phone')}
-              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }} />
-            {errors.phone && <Text fontSize="xs" color="red.500" mt={1}>{errors.phone}</Text>}
-          </GridItem>
-        </Grid>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Your name <span className="text-red-400">*</span>
+            </label>
+            <input className={inputCls('name')} placeholder="Full name" value={form.name} onChange={set('name')} />
+            {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Phone <span className="text-red-400">*</span>
+            </label>
+            <input className={inputCls('phone')} placeholder="+250 7XX XXX XXX" value={form.phone} onChange={set('phone')} />
+            {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
+          </div>
+        </div>
 
         {/* Email */}
-        <Box>
-          <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
-            Email{' '}
-            <Text as="span" color="gray.400" fontWeight="400">(optional — get notified when resolved)</Text>
-          </Text>
-          <Input type="email" placeholder="your@email.com"
-            value={form.email} onChange={set('email')}
-            borderColor="gray.200"
-            _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }} />
-        </Box>
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Email <span className="text-gray-400 font-normal">(optional — get notified when resolved)</span>
+          </label>
+          <input
+            type="email"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-colors"
+            placeholder="your@email.com"
+            value={form.email}
+            onChange={set('email')}
+          />
+        </div>
 
         {/* Progress */}
         {loading && (
-          <Box bg="brand.50" border="1px solid" borderColor="brand.200" borderRadius="xl" p={4}>
-            <HStack gap={3}>
-              <Spinner size="sm" color="brand.600" />
-              <VStack align="start" gap={0}>
-                <Text fontSize="sm" fontWeight="600" color="brand.700">{STEPS[step]}</Text>
-                <Text fontSize="xs" color="brand.500">Step {step} of {STEPS.length - 1}</Text>
-              </VStack>
-            </HStack>
-          </Box>
+          <div className="bg-brand-50 border border-brand-200 rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-4 h-4 border-2 border-brand-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-brand-700">{STEPS[step]}</p>
+                <p className="text-xs text-brand-500">Step {step} of {STEPS.length - 1}</p>
+              </div>
+            </div>
+          </div>
         )}
 
-        <Button
-          size="lg" bg="brand.600" color="white"
-          _hover={{ bg: 'brand.700' }} fontWeight="800"
-          onClick={handleSubmit} disabled={loading} h="56px" fontSize="md"
+        <button
+          className="h-14 w-full bg-brand-600 text-white font-extrabold text-base rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          onClick={handleSubmit}
+          disabled={loading}
         >
-          {loading
-            ? <HStack gap={2}><Spinner size="sm" /><Text>Processing…</Text></HStack>
-            : 'Submit Report →'}
-        </Button>
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Processing…
+            </>
+          ) : 'Submit Report →'}
+        </button>
 
-        <Text fontSize="xs" color="gray.400" textAlign="center">
+        <p className="text-xs text-gray-400 text-center">
           Groq AI identifies the issue and contacts the responsible Kigali institution.
-        </Text>
-      </VStack>
-    </Box>
+        </p>
+      </div>
+    </div>
   )
 }

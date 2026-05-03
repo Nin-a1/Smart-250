@@ -1,8 +1,4 @@
 import { useState, useEffect } from 'react'
-import {
-  Box, VStack, HStack, Text, Heading,
-  Button, Badge, Grid, GridItem, Input,
-} from '@chakra-ui/react'
 import { useNavigate } from 'react-router-dom'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { db, isFirebaseConfigured } from '../lib/firebase'
@@ -10,106 +6,64 @@ import { getIssues, clearAllIssues } from '../lib/storage'
 import IssueMap from '../components/IssueMap'
 import { Issue, IssueStatus } from '../types'
 
-const SEV_BAR: Record<string, string> = {
-  low: '#16a34a', medium: '#d97706', high: '#dc2626',
+const SEV_BAR: Record<string, string> = { low: '#16a34a', medium: '#d97706', high: '#dc2626' }
+const SEV_CLS: Record<string, string> = {
+  low: 'bg-green-100 text-green-700',
+  medium: 'bg-orange-100 text-orange-700',
+  high: 'bg-red-100 text-red-700',
 }
-const SEV_LABEL: Record<string, string> = {
-  low: 'green', medium: 'orange', high: 'red',
-}
+const TYPE_CLS = 'bg-purple-100 text-purple-700'
 
 function IssueCard({ issue }: { issue: Issue }) {
   const resolved = issue.status === 'resolved'
   return (
-    <Box
-      bg="white" borderRadius="xl" overflow="hidden"
-      border="1px solid" borderColor="gray.100"
-      shadow="0 1px 4px rgba(0,0,0,0.04)"
-      _hover={{ shadow: '0 6px 20px rgba(0,0,0,0.08)', borderColor: 'gray.200', transform: 'translateY(-2px)' }}
-      transition="all 0.2s"
-      position="relative"
-    >
-      {/* Severity accent bar */}
-      <Box h="3px" bg={SEV_BAR[issue.severity]} />
-
-      {/* Photo */}
+    <div className="bg-white rounded-xl overflow-hidden border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] hover:border-gray-200 hover:-translate-y-0.5 transition-all duration-200 relative">
+      <div className="h-[3px]" style={{ background: SEV_BAR[issue.severity] }} />
       {(issue.photoUrl || issue.photoBase64) && (
-        <Box h="160px" overflow="hidden" bg="gray.100">
+        <div className="h-40 overflow-hidden bg-gray-100">
           <img
             src={issue.photoUrl || issue.photoBase64} alt="issue"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            className="w-full h-full object-cover block"
           />
-        </Box>
+        </div>
       )}
-
-      <Box p={5}>
-        <VStack align="stretch" gap={3}>
-          {/* ID + status */}
-          <HStack justify="space-between" flexWrap="wrap" gap={2}>
-            <Text fontSize="10px" fontFamily="mono" fontWeight="600" color="gray.400" letterSpacing="0.05em">
-              {issue.id}
-            </Text>
-            <Badge
-              colorPalette={resolved ? 'green' : 'orange'}
-              variant="subtle" fontSize="10px" borderRadius="full" px={2}
-              textTransform="capitalize"
-            >
-              {resolved ? '✓ Resolved' : '● Open'}
-            </Badge>
-          </HStack>
-
-          {/* Title */}
-          <Text fontWeight="700" fontSize="sm" color="gray.900" lineHeight="1.4">
-            {issue.title}
-          </Text>
-
-          {/* Description */}
-          <Text
-            fontSize="xs" color="gray.500" lineHeight="1.6"
-            style={{
-              display: '-webkit-box', WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical', overflow: 'hidden',
-            }}
-          >
-            {issue.description}
-          </Text>
-
-          {/* Meta */}
-          <VStack align="start" gap={1}>
-            <HStack gap={1}>
-              <Text fontSize="xs" color="gray.400">📍</Text>
-              <Text fontSize="xs" color="gray.500" overflow="hidden" style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{issue.location}</Text>
-            </HStack>
-            <HStack gap={1}>
-              <Text fontSize="xs" color="gray.400">🏛️</Text>
-              <Text fontSize="xs" color="gray.500" overflow="hidden" style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{issue.institution}</Text>
-            </HStack>
-          </VStack>
-
-          {/* Footer row */}
-          <HStack justify="space-between" pt={1} borderTop="1px solid" borderColor="gray.50">
-            <HStack gap={2}>
-              <Badge colorPalette={SEV_LABEL[issue.severity]} variant="subtle" fontSize="9px" borderRadius="full" textTransform="capitalize">
-                {issue.severity}
-              </Badge>
-              <Badge colorPalette="purple" variant="subtle" fontSize="9px" borderRadius="full" textTransform="capitalize">
-                {issue.issueType}
-              </Badge>
-            </HStack>
-            <Text fontSize="10px" color="gray.400">
-              {new Date(issue.createdAt).toLocaleDateString('en-RW', { day: 'numeric', month: 'short' })}
-            </Text>
-          </HStack>
-
-          {resolved && issue.resolutionConfidence && (
-            <Box bg="green.50" borderRadius="lg" px={3} py={2}>
-              <Text fontSize="xs" color="green.700" fontWeight="600">
-                🤖 AI confidence: {issue.resolutionConfidence}%
-              </Text>
-            </Box>
-          )}
-        </VStack>
-      </Box>
-    </Box>
+      <div className="p-5 flex flex-col gap-3">
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <span className="text-[10px] font-mono font-semibold text-gray-400 tracking-wider">{issue.id}</span>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${resolved ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+            {resolved ? '✓ Resolved' : '● Open'}
+          </span>
+        </div>
+        <p className="font-bold text-sm text-gray-900 leading-snug">{issue.title}</p>
+        <p className="text-xs text-gray-500 leading-[1.6]" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {issue.description}
+        </p>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-400">📍</span>
+            <span className="text-xs text-gray-500 truncate">{issue.location}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-400">🏛️</span>
+            <span className="text-xs text-gray-500 truncate">{issue.institution}</span>
+          </div>
+        </div>
+        <div className="flex justify-between items-center pt-1 border-t border-gray-50">
+          <div className="flex gap-1.5">
+            <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full capitalize ${SEV_CLS[issue.severity]}`}>{issue.severity}</span>
+            <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full capitalize ${TYPE_CLS}`}>{issue.issueType}</span>
+          </div>
+          <span className="text-[10px] text-gray-400">
+            {new Date(issue.createdAt).toLocaleDateString('en-RW', { day: 'numeric', month: 'short' })}
+          </span>
+        </div>
+        {resolved && issue.resolutionConfidence && (
+          <div className="bg-green-50 rounded-lg px-3 py-2">
+            <p className="text-xs text-green-700 font-semibold">🤖 AI confidence: {issue.resolutionConfidence}%</p>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -152,143 +106,123 @@ export default function Dashboard() {
   ]
 
   return (
-    <Box bg="gray.50" minH="100vh">
-      <Box maxW="1200px" mx="auto" py={10} px={6}>
-        <VStack gap={8} align="stretch">
+    <div className="bg-gray-50 min-h-screen">
+      <div className="max-w-[1200px] mx-auto py-10 px-6 flex flex-col gap-8">
 
-          {/* Header */}
-          <HStack justify="space-between" flexWrap="wrap" gap={4}>
-            <VStack align="start" gap={1}>
-              <Heading fontSize="2xl" fontWeight="800" color="gray.900" letterSpacing="-0.02em">
-                Live Issue Dashboard
-              </Heading>
-              <Text fontSize="sm" color="gray.500">
-                All reported civic issues in Kigali · updates in real-time
-              </Text>
-            </VStack>
-            <HStack gap={3}>
-              <Button
-                size="sm" variant="outline"
-                borderColor={confirmClear ? 'red.400' : 'gray.200'}
-                color={confirmClear ? 'red.600' : 'gray.500'}
-                bg={confirmClear ? 'red.50' : 'white'}
-                _hover={{ borderColor: 'red.300', color: 'red.600', bg: 'red.50' }}
-                borderRadius="lg"
-                disabled={clearing}
-                onClick={async () => {
-                  if (!confirmClear) { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 4000); return }
-                  setClearing(true); setConfirmClear(false)
-                  try { await clearAllIssues(); setIssues([]) } finally { setClearing(false) }
-                }}
-              >
-                {clearing ? 'Clearing…' : confirmClear ? '⚠️ Confirm clear' : '🗑 Clear all'}
-              </Button>
-              <Button
-                bg="brand.600" color="white" fontWeight="700" borderRadius="lg"
-                _hover={{ bg: 'brand.700' }} onClick={() => navigate('/report')}
-              >
-                + Report Issue
-              </Button>
-            </HStack>
-          </HStack>
+        {/* Header */}
+        <div className="flex justify-between items-start flex-wrap gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Live Issue Dashboard</h1>
+            <p className="text-sm text-gray-500 mt-1">All reported civic issues in Kigali · updates in real-time</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              className={`px-4 py-2 text-sm border rounded-lg transition-colors ${
+                confirmClear
+                  ? 'border-red-400 text-red-600 bg-red-50'
+                  : 'border-gray-200 text-gray-500 bg-white hover:border-red-300 hover:text-red-600 hover:bg-red-50'
+              }`}
+              disabled={clearing}
+              onClick={async () => {
+                if (!confirmClear) { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 4000); return }
+                setClearing(true); setConfirmClear(false)
+                try { await clearAllIssues(); setIssues([]) } finally { setClearing(false) }
+              }}
+            >
+              {clearing ? 'Clearing…' : confirmClear ? '⚠️ Confirm clear' : '🗑 Clear all'}
+            </button>
+            <button
+              className="px-4 py-2 bg-brand-600 text-white text-sm font-bold rounded-lg hover:bg-brand-700 transition-colors"
+              onClick={() => navigate('/report')}
+            >
+              + Report Issue
+            </button>
+          </div>
+        </div>
 
-          {/* Stats */}
-          <Grid templateColumns="repeat(3, 1fr)" gap={4}>
-            {[
-              { label: 'Total Issues', value: issues.length, color: 'gray.900', bg: 'white' },
-              { label: 'Open',         value: open,          color: 'orange.600', bg: 'orange.50' },
-              { label: 'Resolved',     value: resolved,      color: 'green.600',  bg: 'green.50' },
-            ].map(s => (
-              <GridItem key={s.label}>
-                <Box
-                  bg={s.bg} borderRadius="xl" p={5} textAlign="center"
-                  border="1px solid" borderColor="gray.100"
-                  shadow="0 1px 4px rgba(0,0,0,0.04)"
-                >
-                  <Text fontSize="3xl" fontWeight="800" color={s.color} letterSpacing="-0.02em">
-                    {s.value}
-                  </Text>
-                  <Text fontSize="xs" fontWeight="600" color="gray.500" textTransform="uppercase" letterSpacing="0.05em" mt={1}>
-                    {s.label}
-                  </Text>
-                </Box>
-              </GridItem>
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: 'Total Issues', value: issues.length, cls: 'text-gray-900', bg: 'bg-white' },
+            { label: 'Open',         value: open,          cls: 'text-orange-600', bg: 'bg-orange-50' },
+            { label: 'Resolved',     value: resolved,      cls: 'text-green-600',  bg: 'bg-green-50' },
+          ].map(s => (
+            <div key={s.label} className={`${s.bg} rounded-xl p-5 text-center border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]`}>
+              <p className={`text-3xl font-extrabold tracking-tight ${s.cls}`}>{s.value}</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-1">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-2">
+          {filterBtns.map(f => (
+            <button
+              key={f.key}
+              className={`px-4 py-1.5 text-sm border rounded-full transition-colors font-medium ${
+                filter === f.key
+                  ? 'bg-brand-600 text-white border-brand-600 font-bold'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-600'
+              }`}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+          <input
+            placeholder="Search issues…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="max-w-[240px] px-4 py-1.5 text-sm border border-gray-200 rounded-full bg-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-colors"
+          />
+          {/* View toggle */}
+          <div className="ml-auto flex items-center gap-0.5 bg-gray-200 rounded-full p-[3px]">
+            {(['grid', 'map'] as const).map(v => (
+              <button
+                key={v}
+                className={`px-3 h-[26px] text-xs rounded-full transition-all font-medium ${
+                  viewMode === v
+                    ? 'bg-white text-gray-800 shadow-sm font-semibold'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setViewMode(v)}
+              >
+                {v === 'grid' ? '▦ Grid' : '🗺 Map'}
+              </button>
             ))}
-          </Grid>
+          </div>
+        </div>
 
-          {/* Filters */}
-          <HStack gap={2} flexWrap="wrap">
-            {filterBtns.map(f => (
-              <Button
-                key={f.key} size="sm" borderRadius="full"
-                bg={filter === f.key ? 'brand.600' : 'white'}
-                color={filter === f.key ? 'white' : 'gray.600'}
-                border="1px solid"
-                borderColor={filter === f.key ? 'brand.600' : 'gray.200'}
-                fontWeight={filter === f.key ? '700' : '500'}
-                _hover={{ borderColor: 'brand.400', color: filter === f.key ? 'white' : 'brand.600' }}
-                onClick={() => setFilter(f.key)}
-              >
-                {f.label}
-              </Button>
-            ))}
-            <Input
-              placeholder="Search issues…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              maxW="240px" size="sm" borderRadius="full"
-              bg="white" borderColor="gray.200"
-              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 2px rgba(15,110,86,0.15)' }}
-            />
-            {/* View toggle */}
-            <HStack gap={1} ml="auto" bg="gray.200" borderRadius="full" p="3px">
-              {(['grid', 'map'] as const).map(v => (
-                <Button
-                  key={v} size="xs" h="26px" px={3} borderRadius="full"
-                  bg={viewMode === v ? 'white' : 'transparent'}
-                  color={viewMode === v ? 'gray.800' : 'gray.500'}
-                  shadow={viewMode === v ? 'sm' : 'none'}
-                  fontWeight={viewMode === v ? '600' : '400'}
-                  _hover={{}} onClick={() => setViewMode(v)}
+        {/* Map */}
+        {viewMode === 'map' && <IssueMap issues={visible} height="500px" />}
+
+        {/* Grid */}
+        {viewMode === 'grid' && (
+          visible.length === 0 ? (
+            <div className="bg-white rounded-2xl p-20 text-center border border-gray-100">
+              <p className="text-4xl mb-4">📭</p>
+              <p className="font-bold text-gray-700 text-lg mb-1">No issues found</p>
+              <p className="text-gray-400 text-sm mb-6">
+                {issues.length === 0 ? 'Be the first to report an issue in Kigali.' : 'Try a different filter or search term.'}
+              </p>
+              {issues.length === 0 && (
+                <button
+                  className="px-6 py-2.5 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700 transition-colors"
+                  onClick={() => navigate('/report')}
                 >
-                  {v === 'grid' ? '▦ Grid' : '🗺 Map'}
-                </Button>
+                  Report the first issue →
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {visible.map(issue => (
+                <IssueCard key={issue.id} issue={issue} />
               ))}
-            </HStack>
-          </HStack>
-
-          {/* Map */}
-          {viewMode === 'map' && <IssueMap issues={visible} height="500px" />}
-
-          {/* Grid */}
-          {viewMode === 'grid' && (
-            visible.length === 0 ? (
-              <Box
-                bg="white" borderRadius="2xl" p={20} textAlign="center"
-                border="1px solid" borderColor="gray.100"
-              >
-                <Text fontSize="4xl" mb={4}>📭</Text>
-                <Text fontWeight="700" color="gray.700" fontSize="lg" mb={1}>No issues found</Text>
-                <Text color="gray.400" fontSize="sm" mb={6}>
-                  {issues.length === 0 ? 'Be the first to report an issue in Kigali.' : 'Try a different filter or search term.'}
-                </Text>
-                {issues.length === 0 && (
-                  <Button bg="brand.600" color="white" _hover={{ bg: 'brand.700' }} borderRadius="lg"
-                    onClick={() => navigate('/report')}>
-                    Report the first issue →
-                  </Button>
-                )}
-              </Box>
-            ) : (
-              <Grid templateColumns={{ base: '1fr', sm: 'repeat(2,1fr)', lg: 'repeat(3,1fr)' }} gap={5}>
-                {visible.map(issue => (
-                  <GridItem key={issue.id}><IssueCard issue={issue} /></GridItem>
-                ))}
-              </Grid>
-            )
-          )}
-        </VStack>
-      </Box>
-    </Box>
+            </div>
+          )
+        )}
+      </div>
+    </div>
   )
 }

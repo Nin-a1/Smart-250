@@ -1,27 +1,18 @@
-import {
-  createToaster,
-  ToastCloseTrigger,
-  ToastDescription,
-  Toaster as ChakraToaster,
-  ToastRoot,
-  ToastTitle,
-} from '@chakra-ui/react'
+import toast from 'react-hot-toast'
 
-export const toaster = createToaster({
-  placement: 'top-end',
-  pauseOnPageIdle: true,
-})
+interface ToastOptions {
+  title: string
+  description?: string
+  type?: 'success' | 'error' | 'warning' | 'info'
+  duration?: number
+}
 
-export function Toaster() {
-  return (
-    <ChakraToaster toaster={toaster}>
-      {(toast) => (
-        <ToastRoot>
-          {toast.title && <ToastTitle>{toast.title}</ToastTitle>}
-          {toast.description && <ToastDescription>{toast.description}</ToastDescription>}
-          <ToastCloseTrigger />
-        </ToastRoot>
-      )}
-    </ChakraToaster>
-  )
+export const toaster = {
+  create: ({ title, description, type, duration }: ToastOptions) => {
+    const msg = description ? `${title} — ${description}` : title
+    const opts = duration ? { duration } : {}
+    if (type === 'success') toast.success(msg, opts)
+    else if (type === 'error') toast.error(msg, opts)
+    else toast(msg, opts)
+  },
 }

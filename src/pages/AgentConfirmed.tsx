@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Box, VStack, HStack, Text, Heading, Button, Badge, Grid } from '@chakra-ui/react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getIssueById } from '../lib/storage'
 import { Issue } from '../types'
 
-const SEV: Record<string, string> = { low: 'green', medium: 'orange', high: 'red' }
+const SEV_CLS: Record<string, string> = {
+  low: 'bg-green-100 text-green-700',
+  medium: 'bg-orange-100 text-orange-700',
+  high: 'bg-red-100 text-red-700',
+}
+const SEV_BAR: Record<string, string> = {
+  low: '#16a34a', medium: '#d97706', high: '#dc2626',
+}
 
 export default function AgentConfirmed() {
   const { id } = useParams()
@@ -16,9 +22,9 @@ export default function AgentConfirmed() {
   }, [id])
 
   if (!issue) return (
-    <Box textAlign="center" py={20}>
-      <Text color="gray.400">Loading…</Text>
-    </Box>
+    <div className="text-center py-20">
+      <p className="text-gray-400">Loading…</p>
+    </div>
   )
 
   const resolvedDate = issue.resolvedAt
@@ -28,145 +34,124 @@ export default function AgentConfirmed() {
     : null
 
   return (
-    <Box bg="gray.50" minH="100vh" py={12} px={6}>
-      <Box maxW="720px" mx="auto">
-        <VStack gap={6} align="stretch">
+    <div className="bg-gray-50 min-h-screen py-12 px-6">
+      <div className="max-w-[720px] mx-auto flex flex-col gap-6">
 
-          {/* Success banner */}
-          <Box
-            bg="white" borderRadius="2xl" p={10} textAlign="center"
-            border="1px solid" borderColor="green.100"
-            shadow="0 4px 20px rgba(22,163,74,0.1)"
-          >
-            <Box
-              w="72px" h="72px" bg="green.100" borderRadius="full"
-              display="flex" alignItems="center" justifyContent="center" mx="auto" mb={5}
-            >
-              <Text fontSize="3xl">✅</Text>
-            </Box>
-            <Heading fontSize="2xl" fontWeight="800" color="gray.900" mb={2} letterSpacing="-0.02em">
-              Issue Successfully Resolved!
-            </Heading>
-            <Text fontSize="sm" color="gray.500" mb={3} lineHeight="1.7">
-              AI has verified the fix. The dashboard and reporter have been updated.
-            </Text>
-            {resolvedDate && (
-              <Box bg="green.50" borderRadius="lg" px={4} py={2} display="inline-flex">
-                <Text fontSize="xs" color="green.700" fontWeight="600">Resolved on {resolvedDate}</Text>
-              </Box>
-            )}
-          </Box>
-
-          {/* Issue summary */}
-          <Box bg="white" borderRadius="xl" overflow="hidden" border="1px solid" borderColor="gray.100" shadow="0 1px 4px rgba(0,0,0,0.04)">
-            <Box h="3px" bg={issue.severity === 'high' ? '#dc2626' : issue.severity === 'medium' ? '#d97706' : '#16a34a'} />
-            <Box p={6}>
-              <Text fontSize="xs" fontWeight="700" color="gray.400" textTransform="uppercase" letterSpacing="0.08em" mb={4}>
-                Issue Summary
-              </Text>
-              <HStack gap={2} flexWrap="wrap" mb={3}>
-                <Text fontSize="10px" fontFamily="mono" fontWeight="600" color="gray.400">{issue.id}</Text>
-                <Badge colorPalette={SEV[issue.severity]} variant="subtle" borderRadius="full" textTransform="capitalize" fontSize="10px">{issue.severity}</Badge>
-                <Badge colorPalette="blue" variant="subtle" borderRadius="full" textTransform="capitalize" fontSize="10px">{issue.issueType}</Badge>
-                <Badge colorPalette="green" variant="subtle" borderRadius="full" fontSize="10px">✓ Resolved</Badge>
-              </HStack>
-              <Text fontWeight="700" fontSize="md" color="gray.900" mb={2}>{issue.title}</Text>
-              <Text fontSize="sm" color="gray.500" lineHeight="1.7" mb={3}>{issue.description}</Text>
-              <VStack align="start" gap={1}>
-                <Text fontSize="xs" color="gray.500">📍 {issue.location}</Text>
-                <Text fontSize="xs" color="gray.500">👤 {issue.reporterName} · {issue.reporterPhone}</Text>
-                <Text fontSize="xs" color="gray.500">🏛️ {issue.institution}</Text>
-              </VStack>
-            </Box>
-          </Box>
-
-          {/* Before / After */}
-          <Box bg="white" borderRadius="xl" p={6} border="1px solid" borderColor="gray.100" shadow="0 1px 4px rgba(0,0,0,0.04)">
-            <Text fontSize="xs" fontWeight="700" color="gray.400" textTransform="uppercase" letterSpacing="0.08em" mb={5}>
-              Before & After
-            </Text>
-            <Grid templateColumns={{ base: '1fr', sm: '1fr 1fr' }} gap={4}>
-              {[
-                { label: 'Before — original report', color: '#dc2626', bg: 'red.50', border: 'red.100', src: issue.photoUrl || issue.photoBase64 },
-                { label: 'After — fix submitted', color: '#16a34a', bg: 'green.50', border: 'green.100', src: issue.resolutionPhotoUrl || issue.resolutionPhotoBase64 },
-              ].map(p => (
-                <Box key={p.label}>
-                  <HStack mb={2} gap={2}>
-                    <Box w="8px" h="8px" borderRadius="full" bg={p.color} />
-                    <Text fontSize="xs" fontWeight="600" color="gray.500">{p.label}</Text>
-                  </HStack>
-                  <Box borderRadius="xl" overflow="hidden" border="1px solid" borderColor={p.border} h="180px" bg={p.bg}>
-                    {p.src ? (
-                      <img src={p.src} alt={p.label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    ) : (
-                      <Box h="full" display="flex" alignItems="center" justifyContent="center">
-                        <Text fontSize="sm" color="gray.400">Uploading…</Text>
-                      </Box>
-                    )}
-                  </Box>
-                </Box>
-              ))}
-            </Grid>
-          </Box>
-
-          {/* AI verdict */}
-          {(issue.resolutionReasoning || issue.resolutionConfidence) && (
-            <Box bg="white" borderRadius="xl" p={6} border="1px solid" borderColor="gray.100" shadow="0 1px 4px rgba(0,0,0,0.04)">
-              <HStack justify="space-between" mb={4}>
-                <HStack gap={2}>
-                  <Text fontSize="lg">🤖</Text>
-                  <Text fontWeight="700" fontSize="sm" color="gray.700">AI Verification</Text>
-                </HStack>
-                {issue.resolutionConfidence && (
-                  <Box bg="green.100" borderRadius="full" px={4} py={1}>
-                    <Text fontWeight="800" color="green.700" fontSize="sm">{issue.resolutionConfidence}% confident</Text>
-                  </Box>
-                )}
-              </HStack>
-              {issue.resolutionReasoning && (
-                <Text fontSize="sm" color="gray.600" lineHeight="1.7">{issue.resolutionReasoning}</Text>
-              )}
-            </Box>
+        {/* Success banner */}
+        <div className="bg-white rounded-2xl p-10 text-center border border-green-100 shadow-[0_4px_20px_rgba(22,163,74,0.1)]">
+          <div className="w-[72px] h-[72px] bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5">
+            <span className="text-3xl">✅</span>
+          </div>
+          <h1 className="text-2xl font-extrabold text-gray-900 mb-2 tracking-tight">Issue Successfully Resolved!</h1>
+          <p className="text-sm text-gray-500 mb-3 leading-[1.7]">
+            AI has verified the fix. The dashboard and reporter have been updated.
+          </p>
+          {resolvedDate && (
+            <div className="inline-flex bg-green-50 rounded-lg px-4 py-2">
+              <p className="text-xs text-green-700 font-semibold">Resolved on {resolvedDate}</p>
+            </div>
           )}
+        </div>
 
-          {/* Reporter */}
-          <Box
-            bg={issue.reporterEmail ? 'blue.50' : 'gray.50'}
-            borderRadius="xl" p={5}
-            border="1px solid" borderColor={issue.reporterEmail ? 'blue.100' : 'gray.100'}
+        {/* Issue summary */}
+        <div className="bg-white rounded-xl overflow-hidden border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+          <div className="h-[3px]" style={{ background: SEV_BAR[issue.severity] }} />
+          <div className="p-6">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Issue Summary</p>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              <span className="text-[10px] font-mono font-semibold text-gray-400">{issue.id}</span>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${SEV_CLS[issue.severity]}`}>{issue.severity}</span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 capitalize">{issue.issueType}</span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">✓ Resolved</span>
+            </div>
+            <p className="font-bold text-base text-gray-900 mb-2">{issue.title}</p>
+            <p className="text-sm text-gray-500 leading-[1.7] mb-3">{issue.description}</p>
+            <div className="flex flex-col gap-1">
+              <p className="text-xs text-gray-500">📍 {issue.location}</p>
+              <p className="text-xs text-gray-500">👤 {issue.reporterName} · {issue.reporterPhone}</p>
+              <p className="text-xs text-gray-500">🏛️ {issue.institution}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Before / After */}
+        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-5">Before & After</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {[
+              { label: 'Before — original report', dotColor: '#dc2626', bg: 'bg-red-50', border: 'border-red-100', src: issue.photoUrl || issue.photoBase64 },
+              { label: 'After — fix submitted',    dotColor: '#16a34a', bg: 'bg-green-50', border: 'border-green-100', src: issue.resolutionPhotoUrl || issue.resolutionPhotoBase64 },
+            ].map(p => (
+              <div key={p.label}>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.dotColor }} />
+                  <p className="text-xs font-semibold text-gray-500">{p.label}</p>
+                </div>
+                <div className={`rounded-xl overflow-hidden border ${p.border} ${p.bg} h-[180px]`}>
+                  {p.src ? (
+                    <img src={p.src} alt={p.label} className="w-full h-full object-cover block" />
+                  ) : (
+                    <div className="h-full flex items-center justify-center">
+                      <p className="text-sm text-gray-400">Uploading…</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* AI verdict */}
+        {(issue.resolutionReasoning || issue.resolutionConfidence) && (
+          <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <p className="font-bold text-sm text-gray-700">AI Verification</p>
+              </div>
+              {issue.resolutionConfidence && (
+                <div className="bg-green-100 rounded-full px-4 py-1">
+                  <p className="font-extrabold text-green-700 text-sm">{issue.resolutionConfidence}% confident</p>
+                </div>
+              )}
+            </div>
+            {issue.resolutionReasoning && (
+              <p className="text-sm text-gray-600 leading-[1.7]">{issue.resolutionReasoning}</p>
+            )}
+          </div>
+        )}
+
+        {/* Reporter */}
+        <div className={`rounded-xl p-5 border ${issue.reporterEmail ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-gray-100'}`}>
+          <div className="flex gap-3 items-start">
+            <span className="text-xl">{issue.reporterEmail ? '📧' : '📞'}</span>
+            <div>
+              <p className={`font-semibold text-sm ${issue.reporterEmail ? 'text-blue-700' : 'text-gray-700'}`}>
+                {issue.reporterEmail ? `Reporter notified — ${issue.reporterEmail}` : 'No email provided'}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {issue.reporterEmail ? 'Resolution confirmation email sent.' : `Contact by phone: ${issue.reporterPhone}`}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            className="py-2.5 border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
+            onClick={() => navigate('/agent/dashboard')}
           >
-            <HStack gap={3}>
-              <Text fontSize="xl">{issue.reporterEmail ? '📧' : '📞'}</Text>
-              <VStack align="start" gap={0.5}>
-                <Text fontWeight="600" fontSize="sm" color={issue.reporterEmail ? 'blue.700' : 'gray.700'}>
-                  {issue.reporterEmail ? `Reporter notified — ${issue.reporterEmail}` : 'No email provided'}
-                </Text>
-                <Text fontSize="xs" color="gray.500">
-                  {issue.reporterEmail ? 'Resolution confirmation email sent.' : `Contact by phone: ${issue.reporterPhone}`}
-                </Text>
-              </VStack>
-            </HStack>
-          </Box>
-
-          {/* Actions */}
-          <Grid templateColumns="1fr 1fr" gap={3}>
-            <Button
-              variant="outline" borderColor="gray.200" color="gray.700" borderRadius="lg" fontWeight="600"
-              _hover={{ bg: 'gray.50', borderColor: 'gray.300' }}
-              onClick={() => navigate('/agent/dashboard')}
-            >
-              ← Back to Dashboard
-            </Button>
-            <Button
-              bg="brand.600" color="white" fontWeight="700" borderRadius="lg"
-              _hover={{ bg: 'brand.700' }}
-              onClick={() => navigate('/dashboard')}
-            >
-              Live Dashboard →
-            </Button>
-          </Grid>
-        </VStack>
-      </Box>
-    </Box>
+            ← Back to Dashboard
+          </button>
+          <button
+            className="py-2.5 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700 transition-colors"
+            onClick={() => navigate('/dashboard')}
+          >
+            Live Dashboard →
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
