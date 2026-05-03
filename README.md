@@ -1,58 +1,74 @@
 # Smart Kigali Alert 🚨
 
-A civic issue reporting and resolution platform for Kigali, Rwanda.
-Built for the SMART-250 Lyftathon — City & Community track.
+A civic issue reporting and AI-verified resolution platform for Kigali, Rwanda.
+Built live at the SMART-250 Lyftathon 2026 — City & Community track.
 
-## What it does
+## The problem
 
-Citizens photograph urban issues (potholes, broken lights, waste, flooding).
-Gemini AI analyzes the photo, identifies the issue type, searches for the
-responsible Rwandan institution, and sends them an alert email automatically.
+Urban issues in Kigali — potholes, broken street lights, illegal dumping,
+blocked drains — go unreported or unresolved with no accountability loop.
 
-Institution agents log in, upload proof photos of fixes, and AI verifies
-the resolution by comparing before and after images.
+## The solution
 
-Every Friday, an automated reminder email goes to each institution that
-has unresolved issues.
+Citizens photograph issues and submit in 30 seconds. Gemini AI analyzes
+the photo, finds the responsible Rwandan institution via Google Search,
+and sends them an alert email automatically.
+
+Agents upload resolution proof. AI compares before and after photos to
+verify the fix is genuine. The reporter is notified. Every Friday, an
+automated reminder goes to institutions with unresolved issues.
 
 ## Tech stack
 
-- React 18 + TypeScript
-- Chakra UI v3
-- Gemini 2.0 Flash (vision + Google Search grounding)
-- EmailJS (institution email delivery)
-- React Router v6
-- localStorage (issue persistence)
+| Layer     | Technology |
+|-----------|------------|
+| Frontend  | React 18 + TypeScript |
+| UI        | Chakra UI v3 |
+| Routing   | React Router v6 |
+| AI        | Gemini 2.0 Flash (vision + Google Search grounding) |
+| Email     | EmailJS |
+| Storage   | localStorage |
+| Build     | Vite |
 
-## AI flows
+## AI calls
 
-| Call | Trigger | What Gemini does |
-|------|---------|-----------------|
-| 1a | Photo upload | Vision analysis — issue type, title, severity |
-| 1b | After analysis | Google Search grounding — finds real institution + email |
+| # | Trigger | What Gemini does |
+|---|---------|-----------------|
+| 1a | Photo upload | Vision analysis — type, title, severity |
+| 1b | After 1a | Google Search grounding — finds real institution + email |
 | 2 | On submit | Generates formal email body to institution |
 | 3 | Agent resolves | Compares before/after photos, returns confidence score |
-| 4 | Friday button | Generates accountability reminder for each open issue |
+| 4 | Friday button | Generates accountability reminder for all open issues |
 
 ## Setup
 
-1. Clone the repo
-2. Copy `.env.example` to `.env` and fill in your keys:
+1. Copy `.env.example` to `.env` and fill in your keys
    - `VITE_GEMINI_API_KEY` — from Google AI Studio (aistudio.google.com)
-   - `VITE_EMAILJS_*` — from emailjs.com (free tier)
-3. `npm install`
-4. `npm run dev`
+   - `VITE_EMAILJS_*` — from emailjs.com (free tier, connect your Gmail)
+2. `npm install`
+3. `npm run dev`
 
-## Agent passcodes (demo)
+## Agent demo passcodes
 
 | Institution | Passcode |
 |-------------|----------|
-| Rwanda Transport Development Agency | rtda2026 |
-| City of Kigali — Sanitation | san2026 |
-| Rwanda Energy Group | reg2026 |
-| WASAC | wasac2026 |
-| City of Kigali — Urban Planning | urban2026 |
+| Rwanda Transport Development Agency | `rtda2026` |
+| City of Kigali — Sanitation | `san2026` |
+| Rwanda Energy Group (REG) | `reg2026` |
+| WASAC | `wasac2026` |
+| City of Kigali — Urban Planning | `urban2026` |
+
+## Demo flow for judges
+
+1. Open `/` — show two entrances
+2. Go to `/report` — upload a photo of a pothole or waste pile
+3. Watch AI analyze, search for institution, send email — show confirmation page
+4. Go to `/dashboard` — show the live issue card
+5. Go to `/agent` — log in as RTDA agent
+6. Click Resolve — upload after photo — show AI confidence score
+7. Click "Simulate Friday Reminder" — show email sent toast
+8. Back to `/dashboard` — issue now shows as Resolved with AI confidence
 
 ## Team
 
-Built live at SMART-250 Lyftathon 2026 — Kigali, Rwanda.
+Built live at SMART-250 Lyftathon 2026 · Kigali, Rwanda
