@@ -8,11 +8,10 @@ import { toaster } from '../lib/toaster'
 import { verifyResolution } from '../lib/gemini'
 import { sendEmail } from '../lib/email'
 import { getIssueById, updateIssue } from '../lib/storage'
+import { extractGpsFromFile } from '../lib/exif'
 import { Issue } from '../types'
 
-const sevColor: Record<string, string> = {
-  low: 'green', medium: 'orange', high: 'red',
-}
+const sevColor: Record<string, string> = { low: 'green', medium: 'orange', high: 'red' }
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6_371_000
@@ -25,7 +24,8 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-type GpsStatus = 'idle' | 'capturing' | 'match' | 'mismatch' | 'no_original'
+type GpsStatus = 'idle' | 'reading_exif' | 'capturing' | 'match' | 'mismatch' | 'no_original'
+type GpsSource = 'exif' | 'manual' | null
 
 export default function AgentResolve() {
   const { id } = useParams()
@@ -34,9 +34,10 @@ export default function AgentResolve() {
 
   const [issue, setIssue] = useState<Issue | null>(null)
   const [afterPhoto, setAfterPhoto] = useState<string | null>(null)
-  const [_agentGps, setAgentGps] = useState<{ lat: number; lon: number } | null>(null)
+  const [agentGps, setAgentGps] = useState<{ lat: number; lon: number } | null>(null)
   const [distanceM, setDistanceM] = useState<number | null>(null)
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>('idle')
+  const [gpsSource, setGpsSource] = useState<GpsSource>(null)
   const [loading, setLoading] = useState(false)
   const [stepMsg, setStepMsg] = useState('')
   const [verdict, setVerdict] = useState<{
@@ -52,12 +53,71 @@ export default function AgentResolve() {
     }
   }, [id])
 
-  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressImage = (dataUrl: string): Promise<string> =>
+    new Promise(resolve => {
+      const img = new Image()
+      img.onload = () => {
+        const MAX = 1024
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.85))
+      }
+      img.src = dataUrl
+    })
+
+  const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onloadend = () => setAfterPhoto(reader.result as string)
-    reader.readAsDataURL(file)
+    if (!file || !issue) return
+
+    // Start EXIF extraction and compression in parallel
+    setGpsStatus('reading_exif')
+
+    const [compressed, exifCoords] = await Promise.all([
+      new Promise<string>(resolve => {
+        const reader = new FileReader()
+        reader.onloadend = () => compressImage(reader.result as string).then(resolve)
+        reader.readAsDataURL(file)
+      }),
+      extractGpsFromFile(file),
+    ])
+
+    setAfterPhoto(compressed)
+
+    // Process GPS from EXIF
+    if (issue.lat === undefined || issue.lon === undefined) {
+      setGpsStatus('no_original')
+      return
+    }
+
+    if (exifCoords) {
+      const dist = haversineMeters(issue.lat, issue.lon, exifCoords.lat, exifCoords.lon)
+      setAgentGps({ lat: exifCoords.lat, lon: exifCoords.lon })
+      setDistanceM(Math.round(dist))
+      setGpsSource('exif')
+      setGpsStatus(dist <= 300 ? 'match' : 'mismatch')
+
+      if (dist > 300) {
+        toaster.create({
+          title: '⚠️ Photo not taken at the scene',
+          description: `This photo was taken ${Math.round(dist)}m from the reported site. You must be within 300m to resolve the issue.`,
+          type: 'warning',
+          duration: 6000,
+        })
+      } else {
+        toaster.create({ title: '✅ Location verified from photo', type: 'success' })
+      }
+    } else {
+      // No EXIF GPS in photo — fall back to manual GPS
+      setGpsStatus('idle')
+      toaster.create({
+        title: 'No GPS data in photo',
+        description: 'Please use the button below to capture your location manually.',
+        type: 'warning',
+      })
+    }
   }
 
   const captureGps = () => {
@@ -70,6 +130,7 @@ export default function AgentResolve() {
       pos => {
         const { latitude: lat, longitude: lon } = pos.coords
         setAgentGps({ lat, lon })
+        setGpsSource('manual')
 
         if (issue?.lat !== undefined && issue?.lon !== undefined) {
           const dist = haversineMeters(issue.lat, issue.lon, lat, lon)
@@ -87,12 +148,12 @@ export default function AgentResolve() {
     )
   }
 
-  const canVerify =
-    !!afterPhoto && (
-      gpsStatus === 'match' ||
-      gpsStatus === 'mismatch' ||  // allowed with warning
-      gpsStatus === 'no_original'
-    )
+  // Only allow verification if location is confirmed within range
+  const locationOk =
+    gpsStatus === 'match' ||
+    gpsStatus === 'no_original'
+
+  const canVerify = !!afterPhoto && locationOk
 
   const handleVerify = async () => {
     if (!issue || !afterPhoto) {
@@ -104,11 +165,8 @@ export default function AgentResolve() {
 
     try {
       setStepMsg('AI comparing before and after photos…')
-      const result = await verifyResolution(
-        issue.photoUrl || issue.photoBase64,
-        afterPhoto,
-        issue.title,
-      )
+      const beforeSrc = issue.photoUrl || issue.photoBase64
+      const result = await verifyResolution(beforeSrc, afterPhoto, issue.title)
       setVerdict(result)
 
       if (result.resolved) {
@@ -119,6 +177,7 @@ export default function AgentResolve() {
           resolutionPhotoBase64: afterPhoto,
           resolutionReasoning: result.reasoning,
           resolutionConfidence: result.confidence,
+          ...(agentGps ?? {}),
         })
 
         if (issue.reporterEmail) {
@@ -142,11 +201,10 @@ export default function AgentResolve() {
                 `Thank you for contributing to a better Kigali.\n\n` +
                 `— Smart Kigali Alert`,
             })
-          } catch {
-            // non-fatal
-          }
+          } catch { /* non-fatal */ }
         }
         toaster.create({ title: '✅ Issue resolved and verified!', type: 'success' })
+        setTimeout(() => navigate(`/agent/confirmed/${issue.id}`), 800)
       } else {
         toaster.create({
           title: 'AI could not confirm resolution',
@@ -185,7 +243,7 @@ export default function AgentResolve() {
             <Heading fontSize="xl" fontWeight="800" color="gray.800">Resolve Issue</Heading>
           </HStack>
           <Text fontSize="sm" color="gray.500">
-            Upload a "fixed" photo taken at the same location. AI will verify before and after.
+            Upload a photo taken at the fixed location. GPS is read from the photo automatically — you must be within 300m of the original site.
           </Text>
         </VStack>
 
@@ -230,6 +288,7 @@ export default function AgentResolve() {
               <Text as="span" color="red.400">*</Text>
             </Text>
           </HStack>
+
           <Box
             border="2px dashed"
             borderColor={afterPhoto ? 'green.400' : 'gray.200'}
@@ -241,7 +300,12 @@ export default function AgentResolve() {
           >
             <input ref={fileRef} type="file" accept="image/*"
               style={{ display: 'none' }} onChange={handlePhoto} />
-            {afterPhoto ? (
+            {gpsStatus === 'reading_exif' ? (
+              <VStack gap={2}>
+                <Spinner size="md" color="brand.600" />
+                <Text fontSize="sm" color="brand.600" fontWeight="600">Reading GPS from photo…</Text>
+              </VStack>
+            ) : afterPhoto ? (
               <VStack gap={3}>
                 <img src={afterPhoto} alt="after"
                   style={{ maxHeight: 200, borderRadius: 10, objectFit: 'cover', maxWidth: '100%' }} />
@@ -252,77 +316,83 @@ export default function AgentResolve() {
             ) : (
               <VStack gap={2}>
                 <Text fontSize="3xl">📸</Text>
-                <Text fontSize="sm" color="gray.500">
-                  Tap to upload the fixed photo
-                </Text>
-                <Text fontSize="xs" color="gray.400">
-                  Take it at the same location as the original
-                </Text>
+                <Text fontSize="sm" color="gray.500">Tap to upload the fixed photo</Text>
+                <Text fontSize="xs" color="gray.400">GPS is read automatically from the image</Text>
               </VStack>
             )}
           </Box>
         </Box>
 
-        {/* Step 2 — GPS verification */}
+        {/* Step 2 — Location verification */}
         <Box>
           <HStack gap={2} mb={3}>
             <Box w="20px" h="20px" borderRadius="full"
-              bg={gpsStatus === 'match' ? 'green.500' : gpsStatus === 'mismatch' ? 'orange.400' : 'brand.600'}
+              bg={gpsStatus === 'match' ? 'green.500' : gpsStatus === 'mismatch' ? 'red.500' : 'brand.600'}
               display="flex" alignItems="center" justifyContent="center">
               <Text fontSize="xs" color="white" fontWeight="800">2</Text>
             </Box>
-            <Text fontWeight="600" fontSize="sm" color="gray.700">
-              Confirm your location at the scene
-            </Text>
+            <Text fontWeight="600" fontSize="sm" color="gray.700">Location verification</Text>
           </HStack>
 
-          {gpsStatus === 'no_original' ? (
+          {gpsStatus === 'no_original' && (
             <Box bg="gray.50" border="1px solid" borderColor="gray.200" borderRadius="xl" p={4}>
               <Text fontSize="sm" color="gray.500">
                 ⚠️ The original report had no GPS coordinates — location check skipped.
               </Text>
             </Box>
-          ) : gpsStatus === 'idle' || gpsStatus === 'capturing' ? (
-            <Button
-              onClick={captureGps}
-              disabled={gpsStatus === 'capturing'}
-              variant="outline" borderColor="brand.400" color="brand.700"
-              _hover={{ bg: 'brand.50' }} w="full" h="52px"
-            >
-              {gpsStatus === 'capturing'
-                ? <HStack gap={2}><Spinner size="sm" /><Text>Getting your location…</Text></HStack>
-                : '📍 Capture My Location — Confirm I Am at the Scene'}
-            </Button>
-          ) : (
+          )}
+
+          {(gpsStatus === 'idle' || gpsStatus === 'capturing') && afterPhoto && (
+            <Box>
+              <Box bg="yellow.50" border="1px solid" borderColor="yellow.200" borderRadius="xl" p={4} mb={3}>
+                <Text fontSize="sm" color="yellow.800">
+                  📷 No GPS found in the photo. Please capture your location manually to prove you are at the scene.
+                </Text>
+              </Box>
+              <Button
+                onClick={captureGps}
+                disabled={gpsStatus === 'capturing'}
+                variant="outline" borderColor="brand.400" color="brand.700"
+                _hover={{ bg: 'brand.50' }} w="full" h="52px"
+              >
+                {gpsStatus === 'capturing'
+                  ? <HStack gap={2}><Spinner size="sm" /><Text>Getting your location…</Text></HStack>
+                  : '📍 Capture My Location Manually'}
+              </Button>
+            </Box>
+          )}
+
+          {(gpsStatus === 'match' || gpsStatus === 'mismatch') && (
             <Box
-              bg={gpsStatus === 'match' ? 'green.50' : 'orange.50'}
+              bg={gpsStatus === 'match' ? 'green.50' : 'red.50'}
               border="1px solid"
-              borderColor={gpsStatus === 'match' ? 'green.200' : 'orange.200'}
+              borderColor={gpsStatus === 'match' ? 'green.200' : 'red.200'}
               borderRadius="xl" p={4}
             >
               <HStack gap={3}>
-                <Text fontSize="2xl">{gpsStatus === 'match' ? '✅' : '⚠️'}</Text>
+                <Text fontSize="2xl">{gpsStatus === 'match' ? '✅' : '🚫'}</Text>
                 <VStack align="start" gap={0}>
                   <Text fontWeight="700" fontSize="sm"
-                    color={gpsStatus === 'match' ? 'green.700' : 'orange.700'}>
+                    color={gpsStatus === 'match' ? 'green.700' : 'red.700'}>
                     {gpsStatus === 'match'
                       ? `Location confirmed — ${distanceM}m from the reported site`
-                      : `${distanceM}m from the reported site — outside 300m threshold`}
+                      : `Too far — ${distanceM}m from the reported site (max 300m)`}
                   </Text>
-                  <Text fontSize="xs" color={gpsStatus === 'match' ? 'green.600' : 'orange.600'}>
-                    {gpsStatus === 'match'
-                      ? 'You are physically at the scene. Resolution allowed.'
-                      : 'You appear to be far from the site. You may still proceed but this will be flagged.'}
+                  <Text fontSize="xs" color={gpsStatus === 'match' ? 'green.600' : 'red.600'}>
+                    {gpsSource === 'exif' ? 'GPS read from photo metadata' : 'GPS captured manually'}
+                    {gpsStatus === 'mismatch' && ' · You must be at the scene to resolve this issue'}
                   </Text>
                 </VStack>
               </HStack>
-              <Button
-                mt={3} size="sm" variant="ghost"
-                color={gpsStatus === 'match' ? 'green.600' : 'orange.600'}
-                onClick={() => { setGpsStatus('idle'); setAgentGps(null); setDistanceM(null) }}
-              >
-                Recapture location
-              </Button>
+              {gpsStatus === 'mismatch' && (
+                <Button mt={3} size="sm" variant="ghost" color="red.600"
+                  onClick={() => {
+                    setGpsStatus('idle'); setAgentGps(null)
+                    setDistanceM(null); setAfterPhoto(null); setGpsSource(null)
+                  }}>
+                  Upload a different photo
+                </Button>
+              )}
             </Box>
           )}
         </Box>
@@ -374,10 +444,12 @@ export default function AgentResolve() {
         {/* Action buttons */}
         {!verdict && (
           <Box>
-            {!canVerify && gpsStatus === 'idle' && afterPhoto && (
-              <Text fontSize="xs" color="orange.600" mb={2} textAlign="center">
-                ↑ Capture your location first to enable verification
-              </Text>
+            {afterPhoto && !locationOk && gpsStatus !== 'reading_exif' && gpsStatus !== 'capturing' && gpsStatus !== 'idle' && (
+              <Box bg="red.50" border="1px solid" borderColor="red.200" borderRadius="lg" p={3} mb={3}>
+                <Text fontSize="sm" color="red.700" fontWeight="600" textAlign="center">
+                  🚫 You must be within 300m of the original issue location to resolve it.
+                </Text>
+              </Box>
             )}
             <Button
               size="lg" bg="brand.600" color="white"
@@ -398,7 +470,7 @@ export default function AgentResolve() {
             {!verdict.resolved && (
               <Button variant="outline" borderColor="brand.400"
                 color="brand.700" _hover={{ bg: 'brand.50' }}
-                onClick={() => { setVerdict(null); setAfterPhoto(null) }}>
+                onClick={() => { setVerdict(null); setAfterPhoto(null); setGpsStatus('idle'); setGpsSource(null) }}>
                 Try again
               </Button>
             )}

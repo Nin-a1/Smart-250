@@ -2,46 +2,51 @@ import {
   collection, doc, getDoc, getDocs,
   setDoc, updateDoc, deleteDoc, query, orderBy,
 } from 'firebase/firestore'
-import { ref, uploadString, getDownloadURL } from 'firebase/storage'
-import { db, storage, isFirebaseConfigured } from './firebase'
+import { db, isFirebaseConfigured } from './firebase'
+import { uploadImage } from './imagebb'
 import { Issue } from '../types'
 
-const LOCAL_KEY   = 'ska_issues'
-const COLLECTION  = 'issues'
-
-// ── localStorage helpers ───────────────────────────────────────────────────────
+const LOCAL_KEY  = 'ska_issues'
+const COLLECTION = 'issues'
 
 function localGet(): Issue[] {
   try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]') } catch { return [] }
 }
 
 function localSet(issues: Issue[]): void {
-  // When Firebase is active, strip heavy base64 blobs from the local cache
+  // Strip heavy base64 blobs from local cache only when we have remote URLs
   const slim = isFirebaseConfigured
-    ? issues.map(i => ({ ...i, photoBase64: '', resolutionPhotoBase64: '' }))
+    ? issues.map(i => ({
+        ...i,
+        photoBase64: i.photoUrl ? '' : i.photoBase64,
+        resolutionPhotoBase64: i.resolutionPhotoUrl ? '' : i.resolutionPhotoBase64,
+      }))
     : issues
   localStorage.setItem(LOCAL_KEY, JSON.stringify(slim))
 }
 
-// ── Firebase Storage helpers ───────────────────────────────────────────────────
-
-async function uploadPhoto(dataUrl: string, path: string): Promise<string> {
-  const storageRef = ref(storage, path)
-  await uploadString(storageRef, dataUrl, 'data_url')
-  return getDownloadURL(storageRef)
+async function tryUploadImage(dataUrl: string): Promise<string | null> {
+  try {
+    return await uploadImage(dataUrl)
+  } catch (err) {
+    console.warn('[imagebb] upload failed, embedding base64 in Firestore:', err)
+    return null
+  }
 }
-
-// ── Public API ─────────────────────────────────────────────────────────────────
 
 export async function saveIssue(issue: Issue): Promise<void> {
   if (isFirebaseConfigured) {
     let photoUrl = issue.photoUrl
+    let photoBase64Fallback = ''
+
     if (!photoUrl && issue.photoBase64) {
-      photoUrl = await uploadPhoto(issue.photoBase64, `issues/${issue.id}/before.jpg`)
+      photoUrl = await tryUploadImage(issue.photoBase64) ?? undefined
+      if (!photoUrl) photoBase64Fallback = issue.photoBase64
     }
+
     const docData: Record<string, unknown> = {
       ...issue,
-      photoBase64: '',
+      photoBase64: photoBase64Fallback,
       resolutionPhotoBase64: '',
       photoUrl: photoUrl ?? '',
     }
@@ -55,16 +60,15 @@ export async function saveIssue(issue: Issue): Promise<void> {
 
 export async function updateIssue(id: string, patch: Partial<Issue>): Promise<Issue | null> {
   if (isFirebaseConfigured && patch.resolutionPhotoBase64) {
-    const url = await uploadPhoto(
-      patch.resolutionPhotoBase64,
-      `issues/${id}/after.jpg`,
-    )
-    patch = { ...patch, resolutionPhotoUrl: url, resolutionPhotoBase64: '' }
+    const url = await tryUploadImage(patch.resolutionPhotoBase64)
+    if (url) {
+      patch = { ...patch, resolutionPhotoUrl: url, resolutionPhotoBase64: '' }
+    }
+    // If upload failed, base64 stays embedded in Firestore
   }
 
   if (isFirebaseConfigured) {
-    const clean: Record<string, unknown> = { ...patch }
-    await updateDoc(doc(db, COLLECTION, id), clean)
+    await updateDoc(doc(db, COLLECTION, id), patch as Record<string, unknown>)
   }
 
   const all = localGet()

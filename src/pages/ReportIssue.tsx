@@ -9,6 +9,7 @@ import { analyzeIssue, generateEmailBody } from '../lib/gemini'
 import { sendEmail } from '../lib/email'
 import { saveIssue, generateId } from '../lib/storage'
 import { reverseGeocode } from '../lib/geocoding'
+import { extractGpsFromFile } from '../lib/exif'
 import { Issue } from '../types'
 
 const STEPS = [
@@ -26,6 +27,7 @@ export default function ReportIssue() {
 
   const [form, setForm] = useState({ name: '', phone: '', email: '', location: '' })
   const [gps, setGps] = useState<{ lat: number; lon: number } | null>(null)
+  const [gpsSource, setGpsSource] = useState<'exif' | 'manual' | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
@@ -38,6 +40,22 @@ export default function ReportIssue() {
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    // Extract GPS from EXIF before canvas strips it
+    extractGpsFromFile(file).then(async coords => {
+      if (coords) {
+        setGps(coords)
+        setGpsSource('exif')
+        setForm(f => ({ ...f, location: `${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}` }))
+        toaster.create({ title: '📍 Location read from photo', type: 'success' })
+        try {
+          const geo = await reverseGeocode(coords.lat, coords.lon)
+          if (geo) setForm(f => ({ ...f, location: geo.address }))
+        } catch { /* non-fatal */ }
+      }
+    })
+
+    // Compress image via canvas (strips EXIF — GPS already extracted above)
     const reader = new FileReader()
     reader.onloadend = () => {
       const img = new Image()
@@ -60,19 +78,13 @@ export default function ReportIssue() {
       async pos => {
         const { latitude: lat, longitude: lon } = pos.coords
         setGps({ lat, lon })
-        // Show raw coords immediately
+        setGpsSource('manual')
         setForm(f => ({ ...f, location: `${lat.toFixed(5)}, ${lon.toFixed(5)}` }))
         toaster.create({ title: '📍 Location captured', type: 'success' })
-
-        // Improve with a human-readable address in the background
         try {
           const geo = await reverseGeocode(lat, lon)
-          if (geo) {
-            setForm(f => ({ ...f, location: geo.address }))
-          }
-        } catch {
-          // non-fatal — coordinates already set
-        }
+          if (geo) setForm(f => ({ ...f, location: geo.address }))
+        } catch { /* non-fatal */ }
       },
       () => toaster.create({ title: 'GPS unavailable', type: 'error' }),
     )
@@ -147,12 +159,7 @@ export default function ReportIssue() {
             ? 'AI request timed out — check your connection and try again.'
             : err.message
           : 'Unknown error — please try again.'
-      toaster.create({
-        title: 'Submission failed',
-        description: msg,
-        type: 'error',
-        duration: 8000,
-      })
+      toaster.create({ title: 'Submission failed', description: msg, type: 'error', duration: 8000 })
     } finally {
       setLoading(false)
       setStep(0)
@@ -168,9 +175,7 @@ export default function ReportIssue() {
         <VStack align="start" gap={1}>
           <HStack gap={2}>
             <Text fontSize="2xl">📸</Text>
-            <Heading fontSize="2xl" fontWeight="800" color="gray.800">
-              Report an Issue
-            </Heading>
+            <Heading fontSize="2xl" fontWeight="800" color="gray.800">Report an Issue</Heading>
           </HStack>
           <Text color="gray.500" fontSize="sm">
             AI identifies the problem and alerts the right institution automatically.
@@ -191,16 +196,12 @@ export default function ReportIssue() {
             transition="all 0.2s"
             onClick={() => fileRef.current?.click()}
           >
-            <input
-              ref={fileRef} type="file" accept="image/*"
-              style={{ display: 'none' }} onChange={handlePhoto}
-            />
+            <input ref={fileRef} type="file" accept="image/*"
+              style={{ display: 'none' }} onChange={handlePhoto} />
             {photo ? (
               <VStack gap={3}>
-                <img
-                  src={photo} alt="preview"
-                  style={{ maxHeight: 200, borderRadius: 10, objectFit: 'cover', maxWidth: '100%' }}
-                />
+                <img src={photo} alt="preview"
+                  style={{ maxHeight: 200, borderRadius: 10, objectFit: 'cover', maxWidth: '100%' }} />
                 <Text fontSize="sm" color="brand.600" fontWeight="600">
                   ✓ Photo ready — tap to change
                 </Text>
@@ -209,7 +210,7 @@ export default function ReportIssue() {
               <VStack gap={2}>
                 <Text fontSize="3xl">📷</Text>
                 <Text fontSize="sm" color="gray.500">Tap to upload or take a photo</Text>
-                <Text fontSize="xs" color="gray.400">JPG or PNG · max 10MB</Text>
+                <Text fontSize="xs" color="gray.400">Location is read automatically from the photo</Text>
               </VStack>
             )}
           </Box>
@@ -241,7 +242,9 @@ export default function ReportIssue() {
           {errors.location && <Text fontSize="xs" color="red.500" mt={1}>{errors.location}</Text>}
           {gps && (
             <Text fontSize="xs" color="brand.600" mt={1}>
-              ✓ GPS coords saved · map pin will appear on dashboard
+              {gpsSource === 'exif'
+                ? '✓ Exact location extracted from photo metadata'
+                : '✓ GPS coords saved · map pin will appear on dashboard'}
             </Text>
           )}
         </Box>
@@ -252,22 +255,18 @@ export default function ReportIssue() {
             <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
               Your name <Text as="span" color="red.400">*</Text>
             </Text>
-            <Input
-              placeholder="Full name" value={form.name} onChange={set('name')}
+            <Input placeholder="Full name" value={form.name} onChange={set('name')}
               borderColor={border('name')}
-              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }}
-            />
+              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }} />
             {errors.name && <Text fontSize="xs" color="red.500" mt={1}>{errors.name}</Text>}
           </GridItem>
           <GridItem>
             <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
               Phone <Text as="span" color="red.400">*</Text>
             </Text>
-            <Input
-              placeholder="+250 7XX XXX XXX" value={form.phone} onChange={set('phone')}
+            <Input placeholder="+250 7XX XXX XXX" value={form.phone} onChange={set('phone')}
               borderColor={border('phone')}
-              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }}
-            />
+              _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }} />
             {errors.phone && <Text fontSize="xs" color="red.500" mt={1}>{errors.phone}</Text>}
           </GridItem>
         </Grid>
@@ -276,33 +275,22 @@ export default function ReportIssue() {
         <Box>
           <Text fontWeight="600" fontSize="sm" mb={2} color="gray.700">
             Email{' '}
-            <Text as="span" color="gray.400" fontWeight="400">
-              (optional — get notified when resolved)
-            </Text>
+            <Text as="span" color="gray.400" fontWeight="400">(optional — get notified when resolved)</Text>
           </Text>
-          <Input
-            type="email" placeholder="your@email.com"
+          <Input type="email" placeholder="your@email.com"
             value={form.email} onChange={set('email')}
             borderColor="gray.200"
-            _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }}
-          />
+            _focusVisible={{ borderColor: 'brand.500', boxShadow: '0 0 0 1px #0F6E56' }} />
         </Box>
 
-        {/* AI progress indicator */}
+        {/* Progress */}
         {loading && (
-          <Box
-            bg="brand.50" border="1px solid" borderColor="brand.200"
-            borderRadius="xl" p={4}
-          >
+          <Box bg="brand.50" border="1px solid" borderColor="brand.200" borderRadius="xl" p={4}>
             <HStack gap={3}>
               <Spinner size="sm" color="brand.600" />
               <VStack align="start" gap={0}>
-                <Text fontSize="sm" fontWeight="600" color="brand.700">
-                  {STEPS[step]}
-                </Text>
-                <Text fontSize="xs" color="brand.500">
-                  Step {step} of {STEPS.length - 1}
-                </Text>
+                <Text fontSize="sm" fontWeight="600" color="brand.700">{STEPS[step]}</Text>
+                <Text fontSize="xs" color="brand.500">Step {step} of {STEPS.length - 1}</Text>
               </VStack>
             </HStack>
           </Box>

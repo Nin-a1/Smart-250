@@ -5,6 +5,7 @@ import Navbar from './components/Navbar'
 import AgentDashboard from './pages/AgentDashboard'
 import AgentLogin from './pages/AgentLogin'
 import AgentResolve from './pages/AgentResolve'
+import AgentConfirmed from './pages/AgentConfirmed'
 import Confirmation from './pages/Confirmation'
 import Dashboard from './pages/Dashboard'
 import Landing from './pages/Landing'
@@ -27,7 +28,8 @@ function App() {
         <Route path="/confirmation/:issueId" element={<Confirmation />} />
         <Route path="/agent/login" element={<AgentLogin />} />
         <Route path="/agent/dashboard" element={<AgentDashboard />} />
-        <Route path="/agent/resolve/:issueId" element={<AgentResolve />} />
+        <Route path="/agent/resolve/:id" element={<AgentResolve />} />
+        <Route path="/agent/confirmed/:id" element={<AgentConfirmed />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Box>

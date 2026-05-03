@@ -1,8 +1,8 @@
 import { Issue, Severity } from '../types'
 
-const GEMINI_MODEL = 'gemini-1.5-flash'
-const GEMINI_URL = (model: string, key: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
+const TEXT_MODEL = 'llama-3.3-70b-versatile'
 
 // Kigali institution directory — used instead of live search
 const INSTITUTIONS: Record<string, { institution: string; institutionEmail: string; institutionReason: string }> = {
@@ -15,6 +15,16 @@ const INSTITUTIONS: Record<string, { institution: string; institutionEmail: stri
   other:          { institution: 'City of Kigali', institutionEmail: 'info@kigalicity.gov.rw',                                           institutionReason: 'This issue has been routed to the City of Kigali for initial assessment and assignment to the correct department.' },
 }
 
+// Collect all configured API keys from env (VITE_GROQ_API_KEY_1 … VITE_GROQ_API_KEY_9)
+function getApiKeys(): string[] {
+  const keys: string[] = []
+  for (let i = 1; i <= 9; i++) {
+    const k = (import.meta.env as Record<string, string>)[`VITE_GROQ_API_KEY_${i}`]
+    if (k) keys.push(k)
+  }
+  return keys
+}
+
 function parseJSON<T>(raw: string): T | null {
   try {
     const clean = raw.replace(/```json|```/g, '').trim()
@@ -25,52 +35,54 @@ function parseJSON<T>(raw: string): T | null {
   }
 }
 
-type GeminiPart =
-  | { text: string }
-  | { inline_data: { mime_type: string; data: string } }
+// Try every key in order; move to next on 429 / 401 / 403
+async function groqChat(model: string, messages: object[], maxTokens = 1024): Promise<string> {
+  const keys = getApiKeys()
+  if (keys.length === 0) throw new Error('No Groq API keys configured. Add VITE_GROQ_API_KEY_1 … to .env')
 
-async function geminiGenerate(
-  parts: GeminiPart[],
-  _attempt = 0,
-): Promise<string> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-  if (!apiKey) throw new Error('VITE_GEMINI_API_KEY is not set')
+  let lastError = ''
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 30_000)
+  for (const apiKey of keys) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30_000)
 
-  try {
-    const res = await fetch(GEMINI_URL(GEMINI_MODEL, apiKey), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts }] }),
-      signal: controller.signal,
-    })
+    try {
+      const res = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+        signal: controller.signal,
+      })
 
-    if (!res.ok) {
-      if ((res.status === 429 || res.status >= 500) && _attempt < 2) {
-        clearTimeout(timer)
-        await new Promise(r => setTimeout(r, (_attempt + 1) * 2000))
-        return geminiGenerate(parts, _attempt + 1)
+      // Quota / auth failure → try next key silently
+      if (res.status === 429 || res.status === 401 || res.status === 403) {
+        const body = await res.text().catch(() => '')
+        lastError = `key …${apiKey.slice(-6)} → ${res.status}`
+        console.warn(`[groq] ${lastError}`, body.slice(0, 120))
+        continue
       }
-      const body = await res.text().catch(() => res.statusText)
-      let detail = res.statusText
-      try {
-        const parsed = JSON.parse(body) as { error?: { message?: string } }
-        detail = parsed?.error?.message ?? detail
-      } catch { /* use statusText */ }
-      throw new Error(`Gemini ${res.status}: ${detail}`)
-    }
 
-    const data = await res.json() as {
-      candidates?: { content: { parts: { text: string }[] } }[]
+      if (!res.ok) {
+        const body = await res.text().catch(() => res.statusText)
+        let detail = res.statusText
+        try { detail = (JSON.parse(body) as { error?: { message?: string } }).error?.message ?? detail } catch { /* */ }
+        throw new Error(`Groq ${res.status}: ${detail}`)
+      }
+
+      const data = await res.json() as { choices?: { message: { content: string } }[] }
+      const content = data.choices?.[0]?.message?.content
+      if (!content) throw new Error('Groq returned an empty response — please try again.')
+      return content
+
+    } finally {
+      clearTimeout(timer)
     }
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!content) throw new Error('Gemini returned an empty response — please try again.')
-    return content
-  } finally {
-    clearTimeout(timer)
   }
+
+  throw new Error(`All Groq API keys exhausted. Last error: ${lastError}`)
 }
 
 // ── Call 1: Analyze photo with vision ─────────────────────────────────────────
@@ -92,10 +104,17 @@ export async function analyzeIssue(
 ): Promise<AnalysisResult> {
   const base64 = photoBase64.replace(/^data:image\/\w+;base64,/, '')
 
-  const parts: GeminiPart[] = [
-    { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+  const messages = [
     {
-      text: `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda. Analyze this photo.
+      role: 'user',
+      content: [
+        {
+          type: 'image_url',
+          image_url: { url: `data:image/jpeg;base64,${base64}` },
+        },
+        {
+          type: 'text',
+          text: `You are the AI engine for Smart Kigali Alert, a civic issue reporting system in Kigali, Rwanda. Analyze this photo.
 Location reported: ${location}
 
 Return ONLY valid JSON (no markdown, no explanation):
@@ -106,14 +125,16 @@ Return ONLY valid JSON (no markdown, no explanation):
   "severity": "low | medium | high",
   "isRealIssue": true
 }`,
+        },
+      ],
     },
   ]
 
   let text = ''
   try {
-    text = await geminiGenerate(parts)
+    text = await groqChat(VISION_MODEL, messages, 512)
   } catch (err) {
-    console.error('[analyzeIssue] Gemini error:', err)
+    console.error('[analyzeIssue] all keys failed:', err)
   }
 
   const visionData = parseJSON<Omit<AnalysisResult, 'institution' | 'institutionEmail'>>(text) ?? {
@@ -132,9 +153,12 @@ Return ONLY valid JSON (no markdown, no explanation):
 // ── Call 2: Generate formal email body ────────────────────────────────────────
 
 export async function generateEmailBody(issue: Issue): Promise<string> {
-  return geminiGenerate([
-    {
-      text: `Write a formal civic report email body to ${issue.institution} on behalf of Smart Kigali Alert.
+  return groqChat(
+    TEXT_MODEL,
+    [
+      {
+        role: 'user',
+        content: `Write a formal civic report email body to ${issue.institution} on behalf of Smart Kigali Alert.
 
 Issue ID:      ${issue.id}
 Type:          ${issue.issueType}
@@ -146,8 +170,10 @@ Reported by:   ${issue.reporterName} (${issue.reporterPhone})
 Date:          ${new Date(issue.createdAt).toLocaleDateString('en-RW')}
 
 Write only the email body. Be professional and concise. End by asking them to acknowledge receipt and confirm action taken, referencing the Issue ID.`,
-    },
-  ])
+      },
+    ],
+    1024,
+  )
 }
 
 // ── Call 3: Verify resolution — compare before and after photos ───────────────
@@ -159,7 +185,6 @@ export interface ResolutionVerdict {
 }
 
 function photoUrl(b64OrUrl: string): string {
-  // Firebase Storage URLs and other https:// links pass through directly
   if (b64OrUrl.startsWith('http')) return b64OrUrl
   const base64 = b64OrUrl.replace(/^data:image\/\w+;base64,/, '')
   return `data:image/jpeg;base64,${base64}`
@@ -170,20 +195,15 @@ export async function verifyResolution(
   afterB64OrUrl: string,
   issueTitle: string,
 ): Promise<ResolutionVerdict> {
-  const beforeData = photoUrl(beforeB64OrUrl)
-  const afterData = photoUrl(afterB64OrUrl)
-
-  const beforePart: GeminiPart = beforeData.startsWith('http')
-    ? { text: `BEFORE image URL: ${beforeData}` }
-    : { inline_data: { mime_type: 'image/jpeg', data: beforeData.replace(/^data:image\/\w+;base64,/, '') } }
-
-  const afterPart: GeminiPart = afterData.startsWith('http')
-    ? { text: `AFTER image URL: ${afterData}` }
-    : { inline_data: { mime_type: 'image/jpeg', data: afterData.replace(/^data:image\/\w+;base64,/, '') } }
-
-  const text = await geminiGenerate([
-    {
-      text: `You are verifying whether a civic issue in Kigali has been resolved.
+  const text = await groqChat(
+    VISION_MODEL,
+    [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `You are verifying whether a civic issue in Kigali has been resolved.
 Issue: "${issueTitle}"
 The FIRST image is BEFORE (the reported problem).
 The SECOND image is AFTER (the claimed resolution).
@@ -195,10 +215,14 @@ Return ONLY valid JSON (no markdown):
   "confidence": 85,
   "reasoning": "One clear sentence explaining your verdict"
 }`,
-    },
-    beforePart,
-    afterPart,
-  ])
+          },
+          { type: 'image_url', image_url: { url: photoUrl(beforeB64OrUrl) } },
+          { type: 'image_url', image_url: { url: photoUrl(afterB64OrUrl) } },
+        ],
+      },
+    ],
+    256,
+  )
 
   return (
     parseJSON<ResolutionVerdict>(text) ?? {
@@ -223,9 +247,12 @@ export async function generateFridayReminder(
     )
     .join('\n')
 
-  return geminiGenerate([
-    {
-      text: `Write a Friday accountability reminder email from Smart Kigali Alert to ${institution}.
+  return groqChat(
+    TEXT_MODEL,
+    [
+      {
+        role: 'user',
+        content: `Write a Friday accountability reminder email from Smart Kigali Alert to ${institution}.
 
 They have ${issues.length} unresolved issue(s) in Kigali:
 ${list}
@@ -234,6 +261,8 @@ Tone: polite but firm. Mention this is the weekly Friday follow-up.
 List each issue clearly. Ask for a status update or resolution proof by end of day. Note that citizens are monitoring these issues in real time on the Smart Kigali Alert dashboard.
 
 Write the email body only.`,
-    },
-  ])
+      },
+    ],
+    1024,
+  )
 }
