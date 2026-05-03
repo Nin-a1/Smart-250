@@ -6,7 +6,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import { toaster } from '../lib/toaster'
 import { verifyResolution } from '../lib/gemini'
-import { sendEmail } from '../lib/email'
+import { sendReporterEmail } from '../lib/email'
 import { getIssueById, updateIssue } from '../lib/storage'
 import { extractGpsFromFile } from '../lib/exif'
 import { Issue } from '../types'
@@ -183,7 +183,7 @@ export default function AgentResolve() {
         if (issue.reporterEmail) {
           setStepMsg('Notifying reporter by email…')
           try {
-            await sendEmail({
+            await sendReporterEmail({
               toEmail: issue.reporterEmail,
               toName: issue.reporterName,
               issueId: issue.id,

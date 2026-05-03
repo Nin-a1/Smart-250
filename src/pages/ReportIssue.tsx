@@ -6,7 +6,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { toaster } from '../lib/toaster'
 import { analyzeIssue, generateEmailBody } from '../lib/gemini'
-import { sendEmail } from '../lib/email'
+import { sendEmail, sendReporterConfirmation } from '../lib/email'
 import { saveIssue, generateId } from '../lib/storage'
 import { reverseGeocode } from '../lib/geocoding'
 import { extractGpsFromFile } from '../lib/exif'
@@ -149,6 +149,21 @@ export default function ReportIssue() {
 
       setStep(5)
       await saveIssue(issue)
+
+      // Notify the reporter that their submission was received
+      if (issue.reporterEmail) {
+        sendReporterConfirmation(
+          issue.reporterEmail,
+          issue.reporterName,
+          issue.id,
+          issue.title,
+          issue.location,
+          issue.severity,
+          issue.institution,
+          issue.reporterPhone,
+        ).catch(err => console.warn('[email] reporter confirmation failed:', err))
+      }
+
       navigate(`/confirmation/${issue.id}`)
 
     } catch (err) {
